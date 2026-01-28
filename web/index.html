@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WoS Translator - Web of Science文献翻译系统</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+    <link rel="icon" type="image/png" href="/assets/favicon.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 min-h-screen">
+    <!-- 导航栏 -->
+    <nav class="fixed top-4 left-4 right-4 bg-white/90 backdrop-blur-md border border-gray-200 rounded-2xl shadow-lg z-50">
+        <div class="max-w-7xl mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-6">
+                    <div class="flex items-center space-x-2">
+                        <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"></path>
+                        </svg>
+                        <span class="text-xl font-bold text-slate-900">WoS Translator</span>
+                    </div>
+                    <a href="/donate.html" class="text-pink-600 hover:text-pink-700 transition-colors cursor-pointer flex items-center space-x-1">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                        </svg>
+                        <span>捐赠</span>
+                    </a>
+                </div>
+                <div class="flex space-x-6">
+                    <a href="/" class="text-blue-600 font-medium hover:text-blue-700 transition-colors cursor-pointer">主页</a>
+                    <a href="/translate.html" class="text-slate-600 hover:text-slate-900 transition-colors cursor-pointer">翻译</a>
+                    <a href="/queue.html" class="text-slate-600 hover:text-slate-900 transition-colors cursor-pointer">队列</a>
+                    <a href="/convert.html" class="text-slate-600 hover:text-slate-900 transition-colors cursor-pointer">转换</a>
+                    <a href="/models.html" class="text-slate-600 hover:text-slate-900 transition-colors cursor-pointer">模型</a>
+                    <a href="/settings.html" class="text-slate-600 hover:text-slate-900 transition-colors cursor-pointer">设置</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主内容 -->
+    <div class="pt-28 pb-12 px-4">
+        <div class="max-w-7xl mx-auto">
+            <!-- Hero区域 -->
+            <div class="text-center mb-16">
+                <h1 class="text-5xl font-bold text-slate-900 mb-4">Web of Science 检索文献HTML翻译</h1>
+                <p class="text-xl text-slate-600 max-w-2xl mx-auto">
+                    学术文献翻译工具，支持批量翻译WoS导出的HTML文件，提供高质量的中英文对照翻译
+                </p>
+            </div>
+
+            <!-- 功能卡片 -->
+            <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
+                <!-- 解析功能 -->
+                <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+                    <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold text-slate-900 mb-2">智能解析</h3>
+                    <p class="text-slate-600 text-sm">自动识别WoS格式，提取标题、摘要、作者等完整信息</p>
+                </div>
+
+                <!-- 翻译功能 -->
+                <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+                    <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold text-slate-900 mb-2">专业翻译</h3>
+                    <p class="text-slate-600 text-sm">基于OpenAI模型，提供学术级翻译质量，保持专业术语准确性</p>
+                </div>
+
+                <!-- 管理功能 -->
+                <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+                    <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold text-slate-900 mb-2">任务管理</h3>
+                    <p class="text-slate-600 text-sm">实时查看翻译进度，支持暂停、恢复、删除等操作</p>
+                </div>
+
+                <!-- 导出功能 -->
+                <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+                    <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold text-slate-900 mb-2">多格式导出</h3>
+                    <p class="text-slate-600 text-sm">支持TXT、JSON、CSV、HTML四种格式，灵活选择导出内容</p>
+                </div>
+            </div>
+
+            <!-- 快速开始 -->
+            <div class="bg-white rounded-xl p-8 shadow-sm border border-gray-200">
+                <h2 class="text-2xl font-bold text-slate-900 mb-6 text-center">快速开始</h2>
+                <div class="grid md:grid-cols-3 gap-8">
+                    <div class="text-center">
+                        <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <span class="text-2xl font-bold text-blue-600">1</span>
+                        </div>
+                        <h3 class="font-semibold text-slate-900 mb-2">上传HTML文件</h3>
+                        <p class="text-slate-600 text-sm">从Web of Science导出HTML格式的文献列表</p>
+                    </div>
+                    <div class="text-center">
+                        <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <span class="text-2xl font-bold text-blue-600">2</span>
+                        </div>
+                        <h3 class="font-semibold text-slate-900 mb-2">配置翻译选项</h3>
+                        <p class="text-slate-600 text-sm">选择要翻译的内容和使用的AI模型</p>
+                    </div>
+                    <div class="text-center">
+                        <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <span class="text-2xl font-bold text-blue-600">3</span>
+                        </div>
+                        <h3 class="font-semibold text-slate-900 mb-2">查看和导出</h3>
+                        <p class="text-slate-600 text-sm">实时查看翻译进度，完成后导出结果</p>
+                    </div>
+                </div>
+                <div class="text-center mt-8">
+                    <a href="/translate.html" class="inline-block px-8 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors cursor-pointer">
+                        开始翻译
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/js/common.js"></script>
+</body>
+</html>

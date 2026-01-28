@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTML转JSON - WoS Translator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 min-h-screen">
+    <nav class="fixed top-4 left-4 right-4 bg-white/90 backdrop-blur-md border border-gray-200 rounded-2xl shadow-lg z-50">
+        <div class="max-w-7xl mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-6">
+                    <div class="flex items-center space-x-2">
+                        <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"></path>
+                        </svg>
+                        <span class="text-xl font-bold text-slate-900">WoS Translator</span>
+                    </div>
+                    <a href="/donate.html" class="text-pink-600 hover:text-pink-700 transition-colors cursor-pointer flex items-center space-x-1">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                        </svg>
+                        <span>捐赠</span>
+                    </a>
+                </div>
+                <div class="flex space-x-6">
+                    <a href="/" class="text-slate-600 hover:text-slate-900 transition-colors cursor-pointer">主页</a>
+                    <a href="/translate.html" class="text-slate-600 hover:text-slate-900 transition-colors cursor-pointer">翻译</a>
+                    <a href="/queue.html" class="text-slate-600 hover:text-slate-900 transition-colors cursor-pointer">队列</a>
+                    <a href="/convert.html" class="text-blue-600 font-medium hover:text-blue-700 transition-colors cursor-pointer">转换</a>
+                    <a href="/models.html" class="text-slate-600 hover:text-slate-900 transition-colors cursor-pointer">模型</a>
+                    <a href="/settings.html" class="text-slate-600 hover:text-slate-900 transition-colors cursor-pointer">设置</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="pt-28 pb-12 px-4">
+        <div class="max-w-4xl mx-auto">
+            <h1 class="text-3xl font-bold text-slate-900 mb-4">HTML转JSON</h1>
+            <p class="text-slate-600 mb-8">将Web of Science HTML文件转换为JSON格式，不创建翻译任务</p>
+
+            <div class="bg-white rounded-xl p-8 shadow-sm border border-gray-200 mb-6">
+                <div id="dropZone" class="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-blue-500 transition-colors cursor-pointer">
+                    <svg class="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                    </svg>
+                    <p class="text-lg text-slate-700 mb-2">拖拽文件到此处或点击上传</p>
+                    <p class="text-sm text-slate-500">支持.html或.htm格式</p>
+                    <input type="file" id="fileInput" accept=".html,.htm" class="hidden">
+                </div>
+            </div>
+
+            <div id="result" class="hidden bg-white rounded-xl p-8 shadow-sm border border-gray-200">
+                <h2 class="text-xl font-semibold text-slate-900 mb-4">转换结果</h2>
+                <div class="mb-4">
+                    <p class="text-slate-600">文件名: <span id="resultFileName" class="font-medium"></span></p>
+                    <p class="text-slate-600">文献数量: <span id="resultCount" class="font-medium"></span></p>
+                </div>
+                <button id="downloadJson" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors cursor-pointer">
+                    下载JSON
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/assets/js/common.js"></script>
+    <script>
+        let convertedData = null;
+        let originalFileName = '';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const dropZone = document.getElementById('dropZone');
+            const fileInput = document.getElementById('fileInput');
+            
+            dropZone.addEventListener('click', () => fileInput.click());
+            fileInput.addEventListener('change', handleFile);
+            
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('border-blue-500');
+            });
+            
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('border-blue-500');
+            });
+            
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('border-blue-500');
+                if (e.dataTransfer.files.length > 0) {
+                    handleFileObject(e.dataTransfer.files[0]);
+                }
+            });
+            
+            document.getElementById('downloadJson').addEventListener('click', downloadJson);
+        });
+
+        async function handleFile(e) {
+            if (e.target.files.length > 0) {
+                await handleFileObject(e.target.files[0]);
+            }
+        }
+
+        async function handleFileObject(file) {
+            const validation = validateHtmlFile(file);
+            if (!validation.valid) {
+                showToast(validation.error, 'error');
+                return;
+            }
+
+            try {
+                showLoading('正在转换...');
+                const content = await readFileContent(file);
+                
+                const result = await apiCall('POST', '/api/convert', {
+                    fileName: file.name,
+                    htmlContent: content
+                });
+                
+                hideLoading();
+                convertedData = result;
+                originalFileName = file.name;
+                
+                document.getElementById('resultFileName').textContent = file.name;
+                document.getElementById('resultCount').textContent = result.totalRecords;
+                document.getElementById('result').classList.remove('hidden');
+                
+                showToast('转换成功！', 'success');
+            } catch (error) {
+                hideLoading();
+                showToast('转换失败: ' + error.message, 'error');
+            }
+        }
+
+        function downloadJson() {
+            if (!convertedData) return;
+            
+            const blob = new Blob([JSON.stringify(convertedData, null, 2)], { type: 'application/json' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = originalFileName.replace(/\.html?$/i, '_data.json');
+            a.click();
+            window.URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
