@@ -1,8 +1,14 @@
 # WoS Translator - Web of Science 文献翻译系统
 
 一个用于翻译 Web of Science 导出的学术文献 HTML 文件的轻量级系统。采用 C++ 后端和 HTML + Tailwind CSS 前端，专为低资源环境优化设计。
-本项目完全使用kiro的Claude Opus 4.5构建完成，总Credits约为500
-编译引用：openai.hpp 
+
+本项目是完全使用kiro的Claude Opus 4.5模型构建，Credits使用量约为500
+编译引用:
+[openai-cpp](https://github.com/olrea/openai-cpp)
+[libcurl](https://curl.se/libcurl/)
+前端skills:
+[UI UX Pro Max](https://ui.cod.ndjp.net/)
+注意：README.md 文件也是使用Claude Opus 4.5模型构建。
 
 ## 功能特性
 
