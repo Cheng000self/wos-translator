@@ -1,5 +1,4 @@
 #include "config_manager.h"
-#include "logger.h"
 #include <fstream>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -89,6 +88,11 @@ SystemConfig ConfigManager::loadSystemConfig() {
         if (j.contains("maxLoginAttempts")) config.maxLoginAttempts = j["maxLoginAttempts"];
         if (j.contains("lockoutDurationMinutes")) config.lockoutDurationMinutes = j["lockoutDurationMinutes"];
         
+        // 日志管理配置
+        if (j.contains("logManageMode")) config.logManageMode = static_cast<LogManageMode>(j["logManageMode"].get<int>());
+        if (j.contains("logRetentionDays")) config.logRetentionDays = j["logRetentionDays"];
+        if (j.contains("logArchiveIntervalDays")) config.logArchiveIntervalDays = j["logArchiveIntervalDays"];
+        
         // 不再打印日志，避免频繁输出
     } catch (const std::exception& e) {
         Logger::getInstance().error("Failed to load system config: " + std::string(e.what()));
@@ -114,6 +118,11 @@ bool ConfigManager::saveSystemConfig(const SystemConfig& config) {
         j["sessionTimeoutMinutes"] = config.sessionTimeoutMinutes;
         j["maxLoginAttempts"] = config.maxLoginAttempts;
         j["lockoutDurationMinutes"] = config.lockoutDurationMinutes;
+        
+        // 日志管理配置
+        j["logManageMode"] = static_cast<int>(config.logManageMode);
+        j["logRetentionDays"] = config.logRetentionDays;
+        j["logArchiveIntervalDays"] = config.logArchiveIntervalDays;
         
         std::ofstream file(systemConfigPath_);
         if (!file.is_open()) {

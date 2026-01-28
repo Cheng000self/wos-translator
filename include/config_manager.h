@@ -7,6 +7,7 @@
 #include <chrono>
 #include <mutex>
 #include "nlohmann/json.hpp"
+#include "logger.h"
 
 using json = nlohmann::json;
 
@@ -25,6 +26,11 @@ struct SystemConfig {
     int sessionTimeoutMinutes = 30;      // 会话超时时间（分钟）
     int maxLoginAttempts = 3;            // 最大登录尝试次数
     int lockoutDurationMinutes = 5;      // 锁定时长（分钟）
+    
+    // 日志管理配置
+    LogManageMode logManageMode = LogManageMode::AutoDelete;  // 日志管理模式
+    int logRetentionDays = 7;            // 日志保留天数（定时删除模式）
+    int logArchiveIntervalDays = 30;     // 日志归档间隔天数（定时归档模式）
 };
 
 struct ModelConfig {

@@ -1094,6 +1094,10 @@ void WebServer::registerDefaultRoutes() {
             response["consecutiveFailureThreshold"] = config.consecutiveFailureThreshold;
             response["serverPort"] = config.serverPort;
             response["logLevel"] = config.logLevel;
+            // 日志管理配置
+            response["logManageMode"] = static_cast<int>(config.logManageMode);
+            response["logRetentionDays"] = config.logRetentionDays;
+            response["logArchiveIntervalDays"] = config.logArchiveIntervalDays;
             // 不返回密码
             
             res.body = response.dump();
@@ -1156,6 +1160,20 @@ void WebServer::registerDefaultRoutes() {
             }
             if (reqBody.contains("lockoutDurationMinutes")) {
                 config.lockoutDurationMinutes = reqBody["lockoutDurationMinutes"];
+            }
+            
+            // 日志管理配置
+            if (reqBody.contains("logManageMode")) {
+                config.logManageMode = static_cast<LogManageMode>(reqBody["logManageMode"].get<int>());
+                Logger::getInstance().setLogManageMode(config.logManageMode);
+            }
+            if (reqBody.contains("logRetentionDays")) {
+                config.logRetentionDays = reqBody["logRetentionDays"];
+                Logger::getInstance().setLogRetentionDays(config.logRetentionDays);
+            }
+            if (reqBody.contains("logArchiveIntervalDays")) {
+                config.logArchiveIntervalDays = reqBody["logArchiveIntervalDays"];
+                Logger::getInstance().setLogArchiveIntervalDays(config.logArchiveIntervalDays);
             }
             
             // 如果要修改密码
@@ -1326,6 +1344,126 @@ void WebServer::registerDefaultRoutes() {
             json response;
             response["success"] = true;
             response["deletedCount"] = count;
+            res.body = response.dump();
+            
+        } catch (const std::exception& e) {
+            json error;
+            error["success"] = false;
+            error["error"] = e.what();
+            res.body = error.dump();
+            res.statusCode = 500;
+        }
+        
+        return res;
+    });
+    
+    // 获取日志文件大小
+    registerRoute("GET", "/api/logs/size", [](const HttpRequest& req) -> HttpResponse {
+        HttpResponse res;
+        res.headers["Content-Type"] = "application/json; charset=utf-8";
+        
+        try {
+            auto stats = Logger::getInstance().getLogStats();
+            std::string formatted = StorageManager::formatStorageSize(stats.totalSize);
+            
+            json response;
+            response["success"] = true;
+            response["bytes"] = stats.totalSize;
+            response["fileCount"] = stats.fileCount;
+            response["formatted"] = formatted;
+            res.body = response.dump();
+            
+        } catch (const std::exception& e) {
+            json error;
+            error["success"] = false;
+            error["error"] = e.what();
+            res.body = error.dump();
+            res.statusCode = 500;
+        }
+        
+        return res;
+    });
+    
+    // 清理所有日志文件
+    registerRoute("POST", "/api/logs/clear", [this](const HttpRequest& req) -> HttpResponse {
+        HttpResponse res;
+        res.headers["Content-Type"] = "application/json; charset=utf-8";
+        
+        // 要求认证
+        if (!requireAuth(req, res)) {
+            return res;
+        }
+        
+        try {
+            int count = Logger::getInstance().clearAllLogs();
+            
+            json response;
+            response["success"] = true;
+            response["deletedCount"] = count;
+            res.body = response.dump();
+            
+            Logger::getInstance().info("Log files cleared by user");
+            
+        } catch (const std::exception& e) {
+            json error;
+            error["success"] = false;
+            error["error"] = e.what();
+            res.body = error.dump();
+            res.statusCode = 500;
+        }
+        
+        return res;
+    });
+    
+    // 手动删除过期日志
+    registerRoute("POST", "/api/logs/delete-old", [this](const HttpRequest& req) -> HttpResponse {
+        HttpResponse res;
+        res.headers["Content-Type"] = "application/json; charset=utf-8";
+        
+        // 要求认证
+        if (!requireAuth(req, res)) {
+            return res;
+        }
+        
+        try {
+            int count = Logger::getInstance().deleteOldLogs();
+            
+            json response;
+            response["success"] = true;
+            response["deletedCount"] = count;
+            res.body = response.dump();
+            
+        } catch (const std::exception& e) {
+            json error;
+            error["success"] = false;
+            error["error"] = e.what();
+            res.body = error.dump();
+            res.statusCode = 500;
+        }
+        
+        return res;
+    });
+    
+    // 手动归档当前日志
+    registerRoute("POST", "/api/logs/archive", [this](const HttpRequest& req) -> HttpResponse {
+        HttpResponse res;
+        res.headers["Content-Type"] = "application/json; charset=utf-8";
+        
+        // 要求认证
+        if (!requireAuth(req, res)) {
+            return res;
+        }
+        
+        try {
+            int result = Logger::getInstance().archiveCurrentLog();
+            
+            json response;
+            response["success"] = result > 0;
+            if (result > 0) {
+                response["message"] = "Log archived successfully";
+            } else {
+                response["message"] = "No log to archive";
+            }
             res.body = response.dump();
             
         } catch (const std::exception& e) {

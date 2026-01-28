@@ -70,6 +70,12 @@ int main(int argc, char* argv[]) {
     Logger::getInstance().setLogLevel(config.logLevel);
     Logger::getInstance().info("Log level set to: " + config.logLevel);
     
+    // 配置日志管理
+    Logger::getInstance().setLogManageMode(config.logManageMode);
+    Logger::getInstance().setLogRetentionDays(config.logRetentionDays);
+    Logger::getInstance().setLogArchiveIntervalDays(config.logArchiveIntervalDays);
+    Logger::getInstance().startLogManager();
+    
     try {
         // 启动任务队列
         TaskQueue::getInstance().start();
