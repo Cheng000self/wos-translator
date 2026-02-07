@@ -25,7 +25,8 @@ struct TaskInfo {
     std::string taskId;
     std::string taskName;    // 任务名称
     std::string fileName;
-    std::string modelName;   // 翻译模型名称
+    std::string modelName;   // 翻译模型名称（单模型时显示名称）
+    int modelCount = 1;      // 使用的模型数量
     TaskStatus status;
     int totalCount;
     int completedCount;
@@ -76,6 +77,7 @@ private:
                                    const std::vector<std::string>& htmlContents);
     void translateTask(const std::string& taskId);
     void translateTaskMultiThread(const std::string& taskId, int numThreads);
+    void translateTaskContinuous(const std::string& taskId);  // 连续调度翻译
     void rebuildTranslatedHtml(const std::string& taskId);
     
     // 模型并发控制

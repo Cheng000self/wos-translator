@@ -40,6 +40,12 @@
 #include <algorithm>
 #include <cmath>
 #include <vector>
+#include <chrono>
+#include <iomanip>
+
+#ifndef _WIN32
+#include <dirent.h>
+#endif
 
 using json = nlohmann::json;
 
@@ -404,6 +410,32 @@ void WebServer::registerDefaultRoutes() {
                 config.modelConfig.temperature = mc.value("temperature", 0.3f);
                 config.modelConfig.systemPrompt = mc.value("systemPrompt", 
                     "你是一个专业的学术文献翻译助手，请将以下英文翻译为中文，保持学术性和准确性。只返回翻译结果，不要添加任何解释。");
+                config.modelConfig.provider = mc.value("provider", "openai");
+                config.modelConfig.enableThinking = mc.value("enableThinking", false);
+                config.modelConfig.autoAppendPath = mc.value("autoAppendPath", true);
+            }
+            
+            // 多模型配置
+            if (reqBody.contains("modelConfigs") && reqBody["modelConfigs"].is_array()) {
+                for (const auto& mc : reqBody["modelConfigs"]) {
+                    ModelWithThreads mwt;
+                    mwt.model.url = mc["url"];
+                    mwt.model.apiKey = mc["apiKey"];
+                    mwt.model.modelId = mc["modelId"];
+                    mwt.model.name = mc.value("name", "");
+                    mwt.model.temperature = mc.value("temperature", 0.3f);
+                    mwt.model.systemPrompt = mc.value("systemPrompt", 
+                        "你是一个专业的学术文献翻译助手，请将以下英文翻译为中文，保持学术性和准确性。只返回翻译结果，不要添加任何解释。");
+                    mwt.model.provider = mc.value("provider", "openai");
+                    mwt.model.enableThinking = mc.value("enableThinking", false);
+                    mwt.model.autoAppendPath = mc.value("autoAppendPath", true);
+                    mwt.threads = mc.value("threads", 1);
+                    config.modelConfigs.push_back(mwt);
+                }
+                // 如果有多模型，也设置第一个为兼容的单模型
+                if (!config.modelConfigs.empty()) {
+                    config.modelConfig = config.modelConfigs[0].model;
+                }
             }
             
             std::string taskId;
@@ -468,6 +500,7 @@ void WebServer::registerDefaultRoutes() {
                 taskJson["taskName"] = task.taskName;
                 taskJson["fileName"] = task.fileName;
                 taskJson["modelName"] = task.modelName;
+                taskJson["modelCount"] = task.modelCount;
                 taskJson["status"] = static_cast<int>(task.status);
                 taskJson["totalCount"] = task.totalCount;
                 taskJson["completedCount"] = task.completedCount;
@@ -556,6 +589,7 @@ void WebServer::registerDefaultRoutes() {
                 litJson["eissn"] = lit.eissn;
                 litJson["status"] = lit.status;
                 litJson["errorMessage"] = lit.errorMessage;
+                litJson["translatedByModel"] = lit.translatedByModel;
                 response.push_back(litJson);
             }
             
@@ -715,6 +749,189 @@ void WebServer::registerDefaultRoutes() {
             json response;
             response["success"] = success;
             res.body = response.dump();
+            
+        } catch (const std::exception& e) {
+            json error;
+            error["success"] = false;
+            error["error"] = e.what();
+            res.body = error.dump();
+            res.statusCode = 400;
+        }
+        
+        return res;
+    });
+    
+    // 重试失败项API
+    registerRoute("POST", "/api/tasks/:id/retry-failed", [](const HttpRequest& req) -> HttpResponse {
+        HttpResponse res;
+        res.headers["Content-Type"] = "application/json; charset=utf-8";
+        
+        try {
+            std::string taskId = req.params.at("id");
+            auto& storage = StorageManager::getInstance();
+            TaskConfig config = storage.loadTaskConfig(taskId);
+            
+            // 只允许在暂停、完成、失败状态下重试
+            if (config.status != "paused" && config.status != "completed" && config.status != "failed") {
+                json error;
+                error["success"] = false;
+                error["error"] = "任务状态不允许重试";
+                res.body = error.dump();
+                res.statusCode = 400;
+                return res;
+            }
+            
+            // 可选：更新模型配置
+            if (!req.body.empty()) {
+                json reqBody = json::parse(req.body);
+                if (reqBody.contains("modelConfigs") && reqBody["modelConfigs"].is_array()) {
+                    config.modelConfigs.clear();
+                    for (const auto& mj : reqBody["modelConfigs"]) {
+                        ModelWithThreads mwt;
+                        mwt.model.url = mj.value("url", "");
+                        mwt.model.apiKey = mj.value("apiKey", "");
+                        mwt.model.modelId = mj.value("modelId", "");
+                        mwt.model.name = mj.value("name", "");
+                        mwt.model.temperature = mj.value("temperature", 0.3f);
+                        mwt.model.systemPrompt = mj.value("systemPrompt", "");
+                        mwt.model.provider = mj.value("provider", "openai");
+                        mwt.model.enableThinking = mj.value("enableThinking", false);
+                        mwt.model.autoAppendPath = mj.value("autoAppendPath", true);
+                        mwt.threads = mj.value("threads", 1);
+                        config.modelConfigs.push_back(mwt);
+                    }
+                    // 同步单模型配置
+                    if (!config.modelConfigs.empty()) {
+                        config.modelConfig = config.modelConfigs[0].model;
+                    }
+                }
+            }
+            
+            // 重置失败的文献为pending
+            std::vector<int> indices = storage.loadIndexJson(taskId);
+            int resetCount = 0;
+            for (int idx : indices) {
+                LiteratureData lit = storage.loadLiteratureData(taskId, idx);
+                if (lit.status == "failed") {
+                    lit.status = "pending";
+                    lit.errorMessage = "";
+                    lit.translatedTitle = "";
+                    lit.translatedAbstract = "";
+                    lit.translatedByModel = "";
+                    storage.saveLiteratureData(taskId, idx, lit);
+                    resetCount++;
+                }
+            }
+            
+            // 更新任务状态
+            config.failedCount = 0;
+            config.status = "pending";
+            
+            auto now = std::chrono::system_clock::now();
+            auto time = std::chrono::system_clock::to_time_t(now);
+            std::tm tm = *std::gmtime(&time);
+            std::ostringstream oss;
+            oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+            config.updatedAt = oss.str();
+            
+            storage.saveTaskConfig(config);
+            
+            json response;
+            response["success"] = true;
+            response["resetCount"] = resetCount;
+            res.body = response.dump();
+            
+            Logger::getInstance().info("Retry failed items for task: " + taskId + ", reset " + std::to_string(resetCount) + " items");
+            
+        } catch (const std::exception& e) {
+            json error;
+            error["success"] = false;
+            error["error"] = e.what();
+            res.body = error.dump();
+            res.statusCode = 400;
+        }
+        
+        return res;
+    });
+    
+    // 重置整个任务API
+    registerRoute("POST", "/api/tasks/:id/reset", [](const HttpRequest& req) -> HttpResponse {
+        HttpResponse res;
+        res.headers["Content-Type"] = "application/json; charset=utf-8";
+        
+        try {
+            std::string taskId = req.params.at("id");
+            auto& storage = StorageManager::getInstance();
+            TaskConfig config = storage.loadTaskConfig(taskId);
+            
+            // 只允许在暂停、完成、失败状态下重置
+            if (config.status != "paused" && config.status != "completed" && config.status != "failed") {
+                json error;
+                error["success"] = false;
+                error["error"] = "任务状态不允许重置";
+                res.body = error.dump();
+                res.statusCode = 400;
+                return res;
+            }
+            
+            // 可选：更新模型配置
+            if (!req.body.empty()) {
+                json reqBody = json::parse(req.body);
+                if (reqBody.contains("modelConfigs") && reqBody["modelConfigs"].is_array()) {
+                    config.modelConfigs.clear();
+                    for (const auto& mj : reqBody["modelConfigs"]) {
+                        ModelWithThreads mwt;
+                        mwt.model.url = mj.value("url", "");
+                        mwt.model.apiKey = mj.value("apiKey", "");
+                        mwt.model.modelId = mj.value("modelId", "");
+                        mwt.model.name = mj.value("name", "");
+                        mwt.model.temperature = mj.value("temperature", 0.3f);
+                        mwt.model.systemPrompt = mj.value("systemPrompt", "");
+                        mwt.model.provider = mj.value("provider", "openai");
+                        mwt.model.enableThinking = mj.value("enableThinking", false);
+                        mwt.model.autoAppendPath = mj.value("autoAppendPath", true);
+                        mwt.threads = mj.value("threads", 1);
+                        config.modelConfigs.push_back(mwt);
+                    }
+                    // 同步单模型配置
+                    if (!config.modelConfigs.empty()) {
+                        config.modelConfig = config.modelConfigs[0].model;
+                    }
+                }
+            }
+            
+            // 重置所有文献为pending
+            std::vector<int> indices = storage.loadIndexJson(taskId);
+            for (int idx : indices) {
+                LiteratureData lit = storage.loadLiteratureData(taskId, idx);
+                lit.status = "pending";
+                lit.errorMessage = "";
+                lit.translatedTitle = "";
+                lit.translatedAbstract = "";
+                lit.translatedByModel = "";
+                storage.saveLiteratureData(taskId, idx, lit);
+            }
+            
+            // 更新任务状态
+            config.completedCount = 0;
+            config.failedCount = 0;
+            config.status = "pending";
+            
+            auto now = std::chrono::system_clock::now();
+            auto time = std::chrono::system_clock::to_time_t(now);
+            std::tm tm = *std::gmtime(&time);
+            std::ostringstream oss;
+            oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+            config.updatedAt = oss.str();
+            
+            storage.saveTaskConfig(config);
+            
+            json response;
+            response["success"] = true;
+            response["resetCount"] = (int)indices.size();
+            res.body = response.dump();
+            
+            Logger::getInstance().info("Reset entire task: " + taskId + ", reset " + std::to_string(indices.size()) + " items");
             
         } catch (const std::exception& e) {
             json error;
@@ -912,6 +1129,9 @@ void WebServer::registerDefaultRoutes() {
             config.temperature = reqBody.value("temperature", 0.3f);
             config.systemPrompt = reqBody.value("systemPrompt", 
                 "你是一个专业的学术文献翻译助手，请将以下英文翻译为中文，保持学术性和准确性。只返回翻译结果，不要添加任何解释。");
+            config.provider = reqBody.value("provider", "openai");
+            config.enableThinking = reqBody.value("enableThinking", false);
+            config.autoAppendPath = reqBody.value("autoAppendPath", true);
             
             Translator translator(config);
             auto testResult = translator.testConnection();
@@ -954,6 +1174,9 @@ void WebServer::registerDefaultRoutes() {
                 double temp = std::round(static_cast<double>(model.temperature) * 100.0) / 100.0;
                 modelJson["temperature"] = temp;
                 modelJson["systemPrompt"] = model.systemPrompt;
+                modelJson["provider"] = model.provider;
+                modelJson["enableThinking"] = model.enableThinking;
+                modelJson["autoAppendPath"] = model.autoAppendPath;
                 response.push_back(modelJson);
             }
             
@@ -990,6 +1213,9 @@ void WebServer::registerDefaultRoutes() {
             
             config.systemPrompt = reqBody.value("systemPrompt", 
                 "你是一个专业的学术文献翻译助手，请将以下英文翻译为中文，保持学术性和准确性。只返回翻译结果，不要添加任何解释。");
+            config.provider = reqBody.value("provider", "openai");
+            config.enableThinking = reqBody.value("enableThinking", false);
+            config.autoAppendPath = reqBody.value("autoAppendPath", true);
             
             // 如果没有提供ID，生成一个
             if (config.id.empty()) {
@@ -1035,6 +1261,9 @@ void WebServer::registerDefaultRoutes() {
             config.temperature = std::round(temp * 100.0f) / 100.0f;
             config.systemPrompt = reqBody.value("systemPrompt", 
                 "你是一个专业的学术文献翻译助手，请将以下英文翻译为中文，保持学术性和准确性。只返回翻译结果，不要添加任何解释。");
+            config.provider = reqBody.value("provider", "openai");
+            config.enableThinking = reqBody.value("enableThinking", false);
+            config.autoAppendPath = reqBody.value("autoAppendPath", true);
             
             bool success = ConfigManager::getInstance().updateModelConfig(modelId, config);
             
@@ -1090,6 +1319,7 @@ void WebServer::registerDefaultRoutes() {
             response["maxConcurrentTasks"] = config.maxConcurrentTasks;
             response["maxConcurrentTasksPerModel"] = config.maxConcurrentTasksPerModel;
             response["maxTranslationThreads"] = config.maxTranslationThreads;
+            response["maxModelsPerTask"] = config.maxModelsPerTask;
             response["maxRetries"] = config.maxRetries;
             response["consecutiveFailureThreshold"] = config.consecutiveFailureThreshold;
             response["serverPort"] = config.serverPort;
@@ -1142,6 +1372,9 @@ void WebServer::registerDefaultRoutes() {
             }
             if (reqBody.contains("maxTranslationThreads")) {
                 config.maxTranslationThreads = reqBody["maxTranslationThreads"];
+            }
+            if (reqBody.contains("maxModelsPerTask")) {
+                config.maxModelsPerTask = reqBody["maxModelsPerTask"];
             }
             if (reqBody.contains("maxRetries")) {
                 config.maxRetries = reqBody["maxRetries"];
@@ -1345,6 +1578,77 @@ void WebServer::registerDefaultRoutes() {
             response["success"] = true;
             response["deletedCount"] = count;
             res.body = response.dump();
+            
+        } catch (const std::exception& e) {
+            json error;
+            error["success"] = false;
+            error["error"] = e.what();
+            res.body = error.dump();
+            res.statusCode = 500;
+        }
+        
+        return res;
+    });
+    
+    // 删除除今天以外的所有任务
+    registerRoute("POST", "/api/storage/cleanup-old", [this](const HttpRequest& req) -> HttpResponse {
+        HttpResponse res;
+        res.headers["Content-Type"] = "application/json; charset=utf-8";
+        
+        // 要求认证
+        if (!requireAuth(req, res)) {
+            return res;
+        }
+        
+        try {
+            // 获取今天的日期字符串 YYYY-MM-DD
+            auto now = std::chrono::system_clock::now();
+            auto time = std::chrono::system_clock::to_time_t(now);
+            std::tm tm = *std::localtime(&time);
+            std::ostringstream oss;
+            oss << std::put_time(&tm, "%Y-%m-%d");
+            std::string today = oss.str();
+            
+            int deletedCount = 0;
+            
+            // 遍历data目录下的日期文件夹
+            DIR* dir = opendir("data");
+            if (dir) {
+                struct dirent* dateEntry;
+                while ((dateEntry = readdir(dir)) != nullptr) {
+                    if (dateEntry->d_name[0] == '.') continue;
+                    std::string dateName = dateEntry->d_name;
+                    
+                    // 跳过今天的文件夹
+                    if (dateName == today) continue;
+                    
+                    std::string datePath = std::string("data/") + dateName;
+                    DIR* dateDir = opendir(datePath.c_str());
+                    if (!dateDir) continue;
+                    
+                    struct dirent* taskEntry;
+                    while ((taskEntry = readdir(dateDir)) != nullptr) {
+                        if (taskEntry->d_name[0] == '.') continue;
+                        std::string taskId = dateName + "/" + taskEntry->d_name;
+                        if (StorageManager::getInstance().permanentDeleteTask(taskId)) {
+                            deletedCount++;
+                        }
+                    }
+                    closedir(dateDir);
+                    
+                    // 尝试删除空的日期目录
+                    rmdir(datePath.c_str());
+                }
+                closedir(dir);
+            }
+            
+            json response;
+            response["success"] = true;
+            response["deletedCount"] = deletedCount;
+            response["today"] = today;
+            res.body = response.dump();
+            
+            Logger::getInstance().info("Cleaned up " + std::to_string(deletedCount) + " old tasks (kept today: " + today + ")");
             
         } catch (const std::exception& e) {
             json error;

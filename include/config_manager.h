@@ -16,7 +16,8 @@ struct SystemConfig {
     int maxTasks = 50;                   // 最大任务数
     int maxConcurrentTasks = 1;          // 最大并发任务数（总体）
     int maxConcurrentTasksPerModel = 1;  // 同一模型最大并发任务数
-    int maxTranslationThreads = 1;       // 任务内翻译线程数
+    int maxTranslationThreads = 1;       // 单模型最大翻译线程数
+    int maxModelsPerTask = 5;            // 单任务最多使用模型数
     int maxRetries = 3;                  // 翻译重试次数
     int consecutiveFailureThreshold = 5; // 连续失败阈值
     std::string adminPasswordHash = "";  // SHA-256哈希
@@ -41,6 +42,9 @@ struct ModelConfig {
     std::string modelId;
     float temperature = 0.3f;
     std::string systemPrompt;
+    std::string provider = "openai";    // "openai", "xiaomi", "minimax"
+    bool enableThinking = false;        // Xiaomi: 是否启用思考模式
+    bool autoAppendPath = true;         // OpenAI: 是否自动追加 /chat/completions
 };
 
 struct Session {

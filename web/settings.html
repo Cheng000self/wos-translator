@@ -78,6 +78,15 @@
                         </div>
                         <div class="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
                             <div>
+                                <p class="font-medium text-slate-900">清理旧任务</p>
+                                <p class="text-slate-600">删除除今天以外的所有任务（不可恢复）</p>
+                            </div>
+                            <button id="cleanupOldBtn" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors cursor-pointer">
+                                清理旧任务
+                            </button>
+                        </div>
+                        <div class="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                            <div>
                                 <p class="font-medium text-slate-900">日志文件</p>
                                 <p id="logSize" class="text-slate-600">加载中...</p>
                             </div>
@@ -153,7 +162,12 @@
                         <div>
                             <label class="block text-sm font-medium text-slate-700 mb-2">翻译线程数</label>
                             <input type="number" id="maxTranslationThreads" min="1" max="16" class="w-full px-4 py-2 border rounded-lg">
-                            <p class="text-xs text-slate-500 mt-1">单任务内并行翻译的线程数</p>
+                            <p class="text-xs text-slate-500 mt-1">单模型最大并行翻译线程数</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">单任务最大模型数</label>
+                            <input type="number" id="maxModelsPerTask" min="1" max="20" class="w-full px-4 py-2 border rounded-lg">
+                            <p class="text-xs text-slate-500 mt-1">单个翻译任务可使用的最大模型数量</p>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-slate-700 mb-2">日志级别</label>
@@ -206,6 +220,7 @@
             document.getElementById('saveSettings').addEventListener('click', saveSettings);
             document.getElementById('refreshStorage').addEventListener('click', loadStorageInfo);
             document.getElementById('cleanupBtn').addEventListener('click', cleanupDeleted);
+            document.getElementById('cleanupOldBtn').addEventListener('click', cleanupOldTasks);
             document.getElementById('clearLogsBtn').addEventListener('click', clearLogs);
             document.getElementById('archiveLogBtn').addEventListener('click', archiveLog);
             
@@ -251,6 +266,7 @@
                 document.getElementById('maxConcurrentTasks').value = settings.maxConcurrentTasks;
                 document.getElementById('maxConcurrentTasksPerModel').value = settings.maxConcurrentTasksPerModel || 1;
                 document.getElementById('maxTranslationThreads').value = settings.maxTranslationThreads || 1;
+                document.getElementById('maxModelsPerTask').value = settings.maxModelsPerTask || 5;
                 document.getElementById('logLevel').value = settings.logLevel;
                 
                 // 日志管理配置
@@ -343,6 +359,20 @@
             }
         }
 
+        async function cleanupOldTasks() {
+            if (!confirm('确定要删除除今天以外的所有任务吗？此操作不可恢复！')) {
+                return;
+            }
+            
+            try {
+                const result = await apiCall('POST', '/api/storage/cleanup-old');
+                showToast(`已删除 ${result.deletedCount} 个旧任务（保留今天: ${result.today}）`, 'success');
+                loadStorageInfo();
+            } catch (error) {
+                showToast('清理失败: ' + error.message, 'error');
+            }
+        }
+
         async function saveSettings() {
             try {
                 const data = {
@@ -351,6 +381,7 @@
                     maxConcurrentTasks: parseInt(document.getElementById('maxConcurrentTasks').value),
                     maxConcurrentTasksPerModel: parseInt(document.getElementById('maxConcurrentTasksPerModel').value),
                     maxTranslationThreads: parseInt(document.getElementById('maxTranslationThreads').value),
+                    maxModelsPerTask: parseInt(document.getElementById('maxModelsPerTask').value),
                     logLevel: document.getElementById('logLevel').value,
                     logManageMode: parseInt(document.querySelector('input[name="logManageMode"]:checked').value),
                     logRetentionDays: parseInt(document.getElementById('logRetentionDays').value),

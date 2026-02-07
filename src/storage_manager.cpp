@@ -92,7 +92,30 @@ bool StorageManager::saveTaskConfig(const TaskConfig& config) {
         modelJson["modelId"] = config.modelConfig.modelId;
         modelJson["temperature"] = config.modelConfig.temperature;
         modelJson["systemPrompt"] = config.modelConfig.systemPrompt;
+        modelJson["provider"] = config.modelConfig.provider;
+        modelJson["enableThinking"] = config.modelConfig.enableThinking;
+        modelJson["autoAppendPath"] = config.modelConfig.autoAppendPath;
         j["modelConfig"] = modelJson;
+        
+        // 保存多模型配置
+        if (!config.modelConfigs.empty()) {
+            json modelsArray = json::array();
+            for (const auto& mwt : config.modelConfigs) {
+                json mj;
+                mj["url"] = mwt.model.url;
+                mj["apiKey"] = mwt.model.apiKey;
+                mj["modelId"] = mwt.model.modelId;
+                mj["name"] = mwt.model.name;
+                mj["temperature"] = mwt.model.temperature;
+                mj["systemPrompt"] = mwt.model.systemPrompt;
+                mj["provider"] = mwt.model.provider;
+                mj["enableThinking"] = mwt.model.enableThinking;
+                mj["autoAppendPath"] = mwt.model.autoAppendPath;
+                mj["threads"] = mwt.threads;
+                modelsArray.push_back(mj);
+            }
+            j["modelConfigs"] = modelsArray;
+        }
         
         j["totalCount"] = config.totalCount;
         j["completedCount"] = config.completedCount;
@@ -152,6 +175,27 @@ TaskConfig StorageManager::loadTaskConfig(const std::string& taskId) {
             config.modelConfig.modelId = modelJson.value("modelId", "");
             config.modelConfig.temperature = modelJson.value("temperature", 0.3f);
             config.modelConfig.systemPrompt = modelJson.value("systemPrompt", "");
+            config.modelConfig.provider = modelJson.value("provider", "openai");
+            config.modelConfig.enableThinking = modelJson.value("enableThinking", false);
+            config.modelConfig.autoAppendPath = modelJson.value("autoAppendPath", true);
+        }
+        
+        // 加载多模型配置
+        if (j.contains("modelConfigs") && j["modelConfigs"].is_array()) {
+            for (const auto& mj : j["modelConfigs"]) {
+                ModelWithThreads mwt;
+                mwt.model.url = mj.value("url", "");
+                mwt.model.apiKey = mj.value("apiKey", "");
+                mwt.model.modelId = mj.value("modelId", "");
+                mwt.model.name = mj.value("name", "");
+                mwt.model.temperature = mj.value("temperature", 0.3f);
+                mwt.model.systemPrompt = mj.value("systemPrompt", "");
+                mwt.model.provider = mj.value("provider", "openai");
+                mwt.model.enableThinking = mj.value("enableThinking", false);
+                mwt.model.autoAppendPath = mj.value("autoAppendPath", true);
+                mwt.threads = mj.value("threads", 1);
+                config.modelConfigs.push_back(mwt);
+            }
         }
         
         config.totalCount = j.value("totalCount", 0);
@@ -237,6 +281,7 @@ bool StorageManager::saveLiteratureData(const std::string& taskId, int index, co
         j["eissn"] = data.eissn;
         j["status"] = data.status;
         j["errorMessage"] = data.errorMessage;
+        j["translatedByModel"] = data.translatedByModel;
         
         std::ofstream file(path);
         if (!file.is_open()) {
@@ -294,6 +339,7 @@ LiteratureData StorageManager::loadLiteratureData(const std::string& taskId, int
         data.eissn = j.value("eissn", "");
         data.status = j.value("status", "pending");
         data.errorMessage = j.value("errorMessage", "");
+        data.translatedByModel = j.value("translatedByModel", "");
         
     } catch (const std::exception& e) {
         Logger::getInstance().error("Failed to load literature data: " + std::string(e.what()));

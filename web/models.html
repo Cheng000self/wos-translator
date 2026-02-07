@@ -35,202 +35,372 @@
             </div>
         </div>
     </nav>
-
     <div class="pt-28 pb-12 px-4">
         <div class="max-w-4xl mx-auto">
             <div class="flex items-center justify-between mb-8">
                 <h1 class="text-3xl font-bold text-slate-900">模型管理</h1>
-                <button id="addModel" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors cursor-pointer">
-                    添加模型
-                </button>
+                <button id="addModel" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors cursor-pointer">添加模型</button>
             </div>
-
             <div id="modelList" class="space-y-4">
                 <div class="text-center py-12 text-slate-500">加载中...</div>
             </div>
         </div>
     </div>
-
     <script src="/assets/js/common.js"></script>
     <script>
-        let models = [];
+    // 模型模板定义 - 后续新增模板只需在此添加
+    const PROVIDER_TEMPLATES = {
+        openai: {
+            label: 'OpenAI 兼容',
+            desc: '兼容大多数OpenAI接口的模型，所有参数均可自定义',
+            fields: { name: true, url: true, apiKey: true, modelId: 'input', temp: true, prompt: true },
+            fixedUrl: '', fixedModels: [], hasThinking: false, defaultAutoAppend: true
+        },
+        xiaomi: {
+            label: 'Xiaomi MiMo',
+            desc: 'URL和模型ID已固定，可修改名称、API Key、温度和系统提示词',
+            fields: { name: true, url: false, apiKey: true, modelId: false, temp: true, prompt: true },
+            fixedUrl: 'https://api.xiaomimimo.com/v1/chat/completions',
+            fixedModels: ['mimo-v2-flash'], hasThinking: true, defaultAutoAppend: false
+        },
+        minimax: {
+            label: 'MiniMAX',
+            desc: 'URL已固定，可修改名称、API Key、选择模型、温度和系统提示词',
+            fields: { name: true, url: false, apiKey: true, modelId: 'select', temp: true, prompt: true },
+            fixedUrl: 'https://api.minimaxi.com/v1/chat/completions',
+            fixedModels: ['MiniMax-M2.1', 'MiniMax-M2.1-lightning', 'MiniMax-M2'], hasThinking: false, defaultAutoAppend: false
+        }
+    };
 
-        document.addEventListener('DOMContentLoaded', () => {
-            loadModels();
-            document.getElementById('addModel').addEventListener('click', showModelForm);
-        });
+    let models = [];
 
-        async function loadModels() {
-            try {
-                models = await apiCall('GET', '/api/models');
-                renderModels();
-            } catch (error) {
-                showToast('加载失败: ' + error.message, 'error');
+    document.addEventListener('DOMContentLoaded', () => {
+        loadModels();
+        document.getElementById('addModel').addEventListener('click', () => showModelForm());
+    });
+
+    async function loadModels() {
+        try { models = await apiCall('GET', '/api/models'); renderModels(); }
+        catch (e) { showToast('加载失败: ' + e.message, 'error'); }
+    }
+
+    function getProviderLabel(p) {
+        const t = PROVIDER_TEMPLATES[p];
+        return t ? t.label : 'OpenAI 兼容';
+    }
+
+    function getProviderTagClass(p) {
+        if (p === 'xiaomi') return 'bg-orange-100 text-orange-700';
+        if (p === 'minimax') return 'bg-purple-100 text-purple-700';
+        return 'bg-blue-100 text-blue-700';  // openai default
+    }
+
+    function renderModels() {
+        const list = document.getElementById('modelList');
+        if (!models.length) {
+            list.innerHTML = '<div class="text-center py-12 text-slate-500">暂无模型配置</div>';
+            return;
+        }
+        list.innerHTML = models.map(m => {
+            const pl = getProviderLabel(m.provider || 'openai');
+            const tagClass = getProviderTagClass(m.provider || 'openai');
+            const tb = (m.provider === 'xiaomi' && m.enableThinking)
+                ? '<span class="ml-2 px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded-full">思考模式</span>' : '';
+            return `
+            <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
+                <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                        <div class="flex items-center mb-2">
+                            <h3 class="text-lg font-semibold text-slate-900">${m.name}</h3>
+                            <span class="ml-3 px-2 py-0.5 text-xs ${tagClass} rounded-full">${pl}</span>
+                            ${tb}
+                        </div>
+                        <p class="text-sm text-slate-600">模型: ${m.modelId}</p>
+                        <p class="text-sm text-slate-600">温度: ${m.temperature}</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="showModelDetails('${m.id}')" class="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer" title="查看详情">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                        </button>
+                        <button onclick="showModelForm('${m.id}')" class="px-3 py-1.5 text-sm text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer" title="编辑">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                        </button>
+                        <button onclick="testModel('${m.id}')" class="px-3 py-1.5 text-sm text-green-600 hover:bg-green-50 rounded-lg transition-colors cursor-pointer" title="测试连接">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        </button>
+                        <button onclick="deleteModel('${m.id}')" class="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer" title="删除">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function showModelDetails(id) {
+        const model = models.find(m => m.id === id);
+        if (!model) return;
+        const providerLabel = getProviderLabel(model.provider || 'openai');
+        const overlay = document.createElement('div');
+        overlay.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4';
+        overlay.innerHTML = `
+            <div class="bg-white rounded-lg p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto">
+                <h2 class="text-xl font-bold text-slate-900 mb-4">模型详情</h2>
+                <div class="space-y-4">
+                    <div><label class="block text-sm font-medium text-slate-700 mb-1">模型模板</label><p class="text-slate-900 bg-slate-50 px-3 py-2 rounded-lg">${providerLabel}</p></div>
+                    <div><label class="block text-sm font-medium text-slate-700 mb-1">名称</label><p class="text-slate-900 bg-slate-50 px-3 py-2 rounded-lg">${model.name}</p></div>
+                    <div><label class="block text-sm font-medium text-slate-700 mb-1">API URL</label><p class="text-slate-900 bg-slate-50 px-3 py-2 rounded-lg break-all">${model.url}</p></div>
+                    <div><label class="block text-sm font-medium text-slate-700 mb-1">API Key</label><p class="text-slate-900 bg-slate-50 px-3 py-2 rounded-lg font-mono text-sm">${model.apiKey ? model.apiKey.substring(0, 8) + '...' + model.apiKey.substring(model.apiKey.length - 4) : '(空)'}</p></div>
+                    <div><label class="block text-sm font-medium text-slate-700 mb-1">模型ID</label><p class="text-slate-900 bg-slate-50 px-3 py-2 rounded-lg">${model.modelId}</p></div>
+                    <div><label class="block text-sm font-medium text-slate-700 mb-1">温度</label><p class="text-slate-900 bg-slate-50 px-3 py-2 rounded-lg">${model.temperature}</p></div>
+                    ${model.provider === 'xiaomi' ? '<div><label class="block text-sm font-medium text-slate-700 mb-1">思考模式</label><p class="text-slate-900 bg-slate-50 px-3 py-2 rounded-lg">' + (model.enableThinking ? '已启用' : '已禁用') + '</p></div>' : ''}
+                    ${(model.provider || 'openai') === 'openai' ? '<div><label class="block text-sm font-medium text-slate-700 mb-1">自动追加 /chat/completions</label><p class="text-slate-900 bg-slate-50 px-3 py-2 rounded-lg">' + (model.autoAppendPath !== false ? '是' : '否') + '</p></div>' : ''}
+                    <div><label class="block text-sm font-medium text-slate-700 mb-1">系统提示词</label><p class="text-slate-900 bg-slate-50 px-3 py-2 rounded-lg text-sm whitespace-pre-wrap">${model.systemPrompt || '(默认)'}</p></div>
+                </div>
+                <div class="flex justify-end mt-6"><button class="close-btn px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 cursor-pointer">关闭</button></div>
+            </div>`;
+        document.body.appendChild(overlay);
+        overlay.querySelector('.close-btn').addEventListener('click', () => overlay.remove());
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    }
+
+    async function testModel(id) {
+        const model = models.find(m => m.id === id);
+        if (!model) return;
+        showLoading('正在测试连接...');
+        try {
+            const result = await apiCall('POST', '/api/models/test', {
+                url: model.url, apiKey: model.apiKey, modelId: model.modelId,
+                temperature: model.temperature, systemPrompt: model.systemPrompt,
+                provider: model.provider || 'openai', enableThinking: model.enableThinking || false,
+                autoAppendPath: model.autoAppendPath !== false
+            });
+            hideLoading();
+            if (result.success) showToast('连接测试成功！模型可正常使用', 'success');
+            else showToast('连接测试失败: ' + (result.error || '未知错误'), 'error');
+        } catch (error) {
+            hideLoading();
+            showToast('连接测试失败: ' + error.message, 'error');
+        }
+    }
+
+    function showModelForm(editId) {
+        const isEdit = !!editId;
+        const model = isEdit ? models.find(m => m.id === editId) : null;
+        const currentProvider = isEdit ? (model.provider || 'openai') : 'openai';
+
+        // 构建模板下拉选项
+        const providerOptions = Object.entries(PROVIDER_TEMPLATES).map(([key, tpl]) =>
+            '<option value="' + key + '"' + (key === currentProvider ? ' selected' : '') + '>' + tpl.label + '</option>'
+        ).join('');
+
+        const overlay = document.createElement('div');
+        overlay.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4';
+        overlay.innerHTML = `
+            <div class="bg-white rounded-lg p-6 max-w-md w-full max-h-[85vh] overflow-y-auto">
+                <h2 class="text-xl font-bold text-slate-900 mb-4">${isEdit ? '编辑模型' : '添加模型'}</h2>
+                <div class="space-y-4">
+                    <!-- 模型模板下拉框 -->
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">模型模板</label>
+                        <select id="providerSelect" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none cursor-pointer">
+                            ${providerOptions}
+                        </select>
+                        <p id="providerDesc" class="text-xs text-slate-500 mt-1">${PROVIDER_TEMPLATES[currentProvider].desc}</p>
+                    </div>
+                    <!-- 模型名称 -->
+                    <div id="nameGroup">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">模型名称 <span class="text-red-500">*</span></label>
+                        <input type="text" id="formModelName" placeholder="例如: GPT-4o" value="${isEdit ? model.name : ''}" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                    </div>
+                    <!-- API URL -->
+                    <div id="urlGroup">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">API URL <span class="text-red-500">*</span></label>
+                        <input type="text" id="formModelUrl" placeholder="https://api.openai.com/v1" value="${isEdit ? model.url : ''}" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                    </div>
+                    <!-- API Key -->
+                    <div id="apiKeyGroup">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">API Key <span class="text-red-500">*</span></label>
+                        <input type="password" id="formModelApiKey" placeholder="sk-..." value="${isEdit ? model.apiKey : ''}" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                    </div>
+                    <!-- 模型ID -->
+                    <div id="modelIdGroup">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">模型ID <span class="text-red-500">*</span></label>
+                        <input type="text" id="formModelId" placeholder="例如: gpt-4o" value="${isEdit ? model.modelId : ''}" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                        <select id="formModelIdSelect" class="hidden w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none cursor-pointer"></select>
+                    </div>
+                    <!-- 温度 -->
+                    <div id="tempGroup">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">温度 (0-2)</label>
+                        <input type="number" id="formModelTemp" placeholder="0.7" value="${isEdit ? model.temperature : '0.7'}" step="0.1" min="0" max="2" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                    </div>
+                    <!-- 思考模式 (Xiaomi) -->
+                    <div id="thinkingGroup" class="hidden">
+                        <label class="flex items-center space-x-3 cursor-pointer">
+                            <input type="checkbox" id="formEnableThinking" ${isEdit && model.enableThinking ? 'checked' : ''} class="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer">
+                            <span class="text-sm font-medium text-slate-700">启用思考模式</span>
+                        </label>
+                        <p class="text-xs text-slate-500 mt-1">启用后模型会进行深度思考，思考内容将被丢弃，仅保留最终结果</p>
+                    </div>
+                    <!-- 自动追加路径 (OpenAI) -->
+                    <div id="autoAppendGroup" class="hidden">
+                        <label class="flex items-center space-x-3 cursor-pointer">
+                            <input type="checkbox" id="formAutoAppendPath" ${isEdit ? (model.autoAppendPath !== false ? 'checked' : '') : 'checked'} class="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer">
+                            <span class="text-sm font-medium text-slate-700">自动追加 /chat/completions</span>
+                        </label>
+                        <p class="text-xs text-slate-500 mt-1">启用后会在API URL后自动追加 /chat/completions 路径，如果URL已包含完整路径请取消勾选</p>
+                    </div>
+                    <!-- 系统提示词 -->
+                    <div id="promptGroup">
+                        <label class="block text-sm font-medium text-slate-700 mb-1">系统提示词</label>
+                        <textarea id="formModelPrompt" rows="3" placeholder="默认: 你是一个专业的学术文献翻译助手..." class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm resize-none">${isEdit && model.systemPrompt ? model.systemPrompt : ''}</textarea>
+                        <p class="text-xs text-slate-500 mt-1">留空则使用默认提示词</p>
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-2 mt-6">
+                    <button class="cancel-btn px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer">取消</button>
+                    <button class="save-btn px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer">保存</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        let selectedProvider = currentProvider;
+        const providerSelectEl = overlay.querySelector('#providerSelect');
+
+        function applyTemplate(provider) {
+            selectedProvider = provider;
+            const tpl = PROVIDER_TEMPLATES[provider];
+            const urlInput = overlay.querySelector('#formModelUrl');
+            const urlGroup = overlay.querySelector('#urlGroup');
+            const modelInput = overlay.querySelector('#formModelId');
+            const modelSelect = overlay.querySelector('#formModelIdSelect');
+            const modelIdGroup = overlay.querySelector('#modelIdGroup');
+            const tempInput = overlay.querySelector('#formModelTemp');
+            const thinkingGroup = overlay.querySelector('#thinkingGroup');
+            const autoAppendGroup = overlay.querySelector('#autoAppendGroup');
+            const autoAppendCheckbox = overlay.querySelector('#formAutoAppendPath');
+            const promptGroup = overlay.querySelector('#promptGroup');
+            const descEl = overlay.querySelector('#providerDesc');
+
+            descEl.textContent = tpl.desc;
+
+            // URL字段
+            if (!tpl.fields.url) {
+                urlInput.value = tpl.fixedUrl;
+                urlInput.readOnly = true;
+                urlInput.classList.add('bg-slate-100', 'text-slate-500');
+            } else {
+                if (!isEdit || model.provider !== provider) urlInput.value = '';
+                urlInput.readOnly = false;
+                urlInput.classList.remove('bg-slate-100', 'text-slate-500');
             }
+
+            // 模型ID字段
+            if (tpl.fields.modelId === 'select') {
+                // 下拉选择模式
+                modelInput.classList.add('hidden');
+                modelSelect.classList.remove('hidden');
+                modelSelect.innerHTML = tpl.fixedModels.map(mid =>
+                    '<option value="' + mid + '"' + (isEdit && model.modelId === mid ? ' selected' : '') + '>' + mid + '</option>'
+                ).join('');
+                modelSelect.disabled = false;
+                modelSelect.classList.remove('bg-slate-100', 'text-slate-500');
+            } else if (tpl.fields.modelId === false) {
+                // 固定不可编辑
+                modelInput.classList.add('hidden');
+                modelSelect.classList.remove('hidden');
+                modelSelect.innerHTML = tpl.fixedModels.map(mid =>
+                    '<option value="' + mid + '">' + mid + '</option>'
+                ).join('');
+                modelSelect.disabled = true;
+                modelSelect.classList.add('bg-slate-100', 'text-slate-500');
+            } else {
+                // 自由输入
+                modelInput.classList.remove('hidden');
+                modelSelect.classList.add('hidden');
+                if (!isEdit || model.provider !== provider) modelInput.value = '';
+            }
+
+            // 温度字段
+            if (!tpl.fields.temp) {
+                tempInput.readOnly = true;
+                tempInput.classList.add('bg-slate-100', 'text-slate-500');
+            } else {
+                tempInput.readOnly = false;
+                tempInput.classList.remove('bg-slate-100', 'text-slate-500');
+            }
+
+            // 思考模式
+            if (tpl.hasThinking) thinkingGroup.classList.remove('hidden');
+            else thinkingGroup.classList.add('hidden');
+
+            // 自动追加路径（仅OpenAI模板显示）
+            if (provider === 'openai') {
+                autoAppendGroup.classList.remove('hidden');
+                if (!isEdit || model.provider !== provider) {
+                    autoAppendCheckbox.checked = tpl.defaultAutoAppend;
+                }
+            } else {
+                autoAppendGroup.classList.add('hidden');
+                autoAppendCheckbox.checked = tpl.defaultAutoAppend;
+            }
+
+            // 系统提示词
+            if (!tpl.fields.prompt) promptGroup.classList.add('hidden');
+            else promptGroup.classList.remove('hidden');
         }
 
-        function renderModels() {
-            const list = document.getElementById('modelList');
-            if (models.length === 0) {
-                list.innerHTML = '<div class="text-center py-12 text-slate-500">暂无模型配置</div>';
+        // 下拉框切换事件
+        providerSelectEl.addEventListener('change', () => applyTemplate(providerSelectEl.value));
+
+        // 初始应用模板
+        applyTemplate(currentProvider);
+
+        overlay.querySelector('.cancel-btn').addEventListener('click', () => overlay.remove());
+        overlay.querySelector('.save-btn').addEventListener('click', async () => {
+            const tpl = PROVIDER_TEMPLATES[selectedProvider];
+            const name = overlay.querySelector('#formModelName').value.trim();
+            const url = overlay.querySelector('#formModelUrl').value.trim();
+            const apiKey = overlay.querySelector('#formModelApiKey').value.trim();
+            const modelInput = overlay.querySelector('#formModelId');
+            const modelSelect = overlay.querySelector('#formModelIdSelect');
+            const modelId = (tpl.fields.modelId === 'input') ? modelInput.value.trim() : modelSelect.value;
+            const temperature = parseFloat(overlay.querySelector('#formModelTemp').value) || 0.3;
+            const systemPrompt = overlay.querySelector('#formModelPrompt').value.trim();
+            const enableThinking = overlay.querySelector('#formEnableThinking').checked;
+            const autoAppendPath = overlay.querySelector('#formAutoAppendPath').checked;
+
+            if (!name || !url || !modelId) {
+                showToast('请填写必填字段', 'error');
                 return;
             }
 
-            list.innerHTML = models.map(model => `
-                <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-                    <div class="flex items-start justify-between">
-                        <div class="flex-1">
-                            <h3 class="text-lg font-semibold text-slate-900 mb-2">${model.name}</h3>
-                            <p class="text-sm text-slate-600">模型: ${model.modelId}</p>
-                            <p class="text-sm text-slate-600">温度: ${model.temperature}</p>
-                        </div>
-                        <div class="flex items-center space-x-2">
-                            <button onclick="showModelDetails('${model.id}')" class="px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer" title="查看详情">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
-                                </svg>
-                            </button>
-                            <button onclick="testModel('${model.id}')" class="px-3 py-1.5 text-sm text-green-600 hover:bg-green-50 rounded-lg transition-colors cursor-pointer" title="测试连接">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                </svg>
-                            </button>
-                            <button onclick="deleteModel('${model.id}')" class="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer" title="删除">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-        }
+            const data = { name, url, apiKey, modelId, temperature, provider: selectedProvider, enableThinking, autoAppendPath };
+            if (systemPrompt) data.systemPrompt = systemPrompt;
 
-        function showModelDetails(id) {
-            const model = models.find(m => m.id === id);
-            if (!model) return;
-
-            const overlay = document.createElement('div');
-            overlay.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4';
-            overlay.innerHTML = `
-                <div class="bg-white rounded-lg p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto">
-                    <h2 class="text-xl font-bold text-slate-900 mb-4">模型详情</h2>
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">名称</label>
-                            <p class="text-slate-900 bg-slate-50 px-3 py-2 rounded-lg">${model.name}</p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">API URL</label>
-                            <p class="text-slate-900 bg-slate-50 px-3 py-2 rounded-lg break-all">${model.url}</p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">API Key</label>
-                            <p class="text-slate-900 bg-slate-50 px-3 py-2 rounded-lg font-mono text-sm">${model.apiKey.substring(0, 8)}...${model.apiKey.substring(model.apiKey.length - 4)}</p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">模型ID</label>
-                            <p class="text-slate-900 bg-slate-50 px-3 py-2 rounded-lg">${model.modelId}</p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">温度</label>
-                            <p class="text-slate-900 bg-slate-50 px-3 py-2 rounded-lg">${model.temperature}</p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">系统提示词</label>
-                            <p class="text-slate-900 bg-slate-50 px-3 py-2 rounded-lg text-sm whitespace-pre-wrap">${model.systemPrompt}</p>
-                        </div>
-                    </div>
-                    <div class="flex justify-end mt-6">
-                        <button class="close-btn px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 cursor-pointer">关闭</button>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(overlay);
-
-            overlay.querySelector('.close-btn').addEventListener('click', () => overlay.remove());
-            overlay.addEventListener('click', (e) => {
-                if (e.target === overlay) overlay.remove();
-            });
-        }
-
-        async function testModel(id) {
-            const model = models.find(m => m.id === id);
-            if (!model) return;
-
-            showLoading('正在测试连接...');
             try {
-                const result = await apiCall('POST', '/api/models/test', {
-                    url: model.url,
-                    apiKey: model.apiKey,
-                    modelId: model.modelId,
-                    temperature: model.temperature,
-                    systemPrompt: model.systemPrompt
-                });
-                hideLoading();
-                if (result.success) {
-                    showToast('连接测试成功！模型可正常使用', 'success');
-                } else {
-                    showToast('连接测试失败: ' + (result.error || '未知错误'), 'error');
-                }
+                if (isEdit) await apiCall('PUT', '/api/models/' + editId, data);
+                else await apiCall('POST', '/api/models', data);
+                overlay.remove();
+                showToast(isEdit ? '修改成功' : '保存成功', 'success');
+                loadModels();
             } catch (error) {
-                hideLoading();
-                showToast('连接测试失败: ' + error.message, 'error');
+                showToast('保存失败: ' + error.message, 'error');
             }
-        }
+        });
+    }
 
-        function showModelForm() {
-            const overlay = document.createElement('div');
-            overlay.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4';
-            overlay.innerHTML = `
-                <div class="bg-white rounded-lg p-6 max-w-md w-full">
-                    <h2 class="text-xl font-bold text-slate-900 mb-4">添加模型</h2>
-                    <div class="space-y-4">
-                        <input type="text" id="modelName" placeholder="模型名称" class="w-full px-4 py-2 border rounded-lg">
-                        <input type="text" id="modelUrl" placeholder="API URL" class="w-full px-4 py-2 border rounded-lg">
-                        <input type="password" id="modelApiKey" placeholder="API Key" class="w-full px-4 py-2 border rounded-lg">
-                        <input type="text" id="modelId" placeholder="模型ID (如 gpt-4)" class="w-full px-4 py-2 border rounded-lg">
-                        <input type="number" id="modelTemp" placeholder="温度 (0-2)" value="0.3" step="0.1" class="w-full px-4 py-2 border rounded-lg">
-                    </div>
-                    <div class="flex justify-end space-x-2 mt-6">
-                        <button class="cancel-btn px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer">取消</button>
-                        <button class="save-btn px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer">保存</button>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(overlay);
-
-            overlay.querySelector('.cancel-btn').addEventListener('click', () => overlay.remove());
-            overlay.querySelector('.save-btn').addEventListener('click', async () => {
-                try {
-                    await apiCall('POST', '/api/models', {
-                        name: document.getElementById('modelName').value,
-                        url: document.getElementById('modelUrl').value,
-                        apiKey: document.getElementById('modelApiKey').value,
-                        modelId: document.getElementById('modelId').value,
-                        temperature: parseFloat(document.getElementById('modelTemp').value)
-                    });
-                    overlay.remove();
-                    showToast('保存成功', 'success');
-                    loadModels();
-                } catch (error) {
-                    showToast('保存失败: ' + error.message, 'error');
-                }
-            });
-        }
-
-        async function deleteModel(id) {
-            showConfirm('确定要删除这个模型吗？', async () => {
-                try {
-                    await apiCall('DELETE', `/api/models/${id}`);
-                    showToast('删除成功', 'success');
-                    loadModels();
-                } catch (error) {
-                    showToast('删除失败: ' + error.message, 'error');
-                }
-            });
-        }
+    async function deleteModel(id) {
+        showConfirm('确定要删除这个模型吗？', async () => {
+            try {
+                await apiCall('DELETE', '/api/models/' + id);
+                showToast('删除成功', 'success');
+                loadModels();
+            } catch (error) {
+                showToast('删除失败: ' + error.message, 'error');
+            }
+        });
+    }
     </script>
 </body>
 </html>

@@ -78,6 +78,7 @@ SystemConfig ConfigManager::loadSystemConfig() {
         if (j.contains("maxConcurrentTasks")) config.maxConcurrentTasks = j["maxConcurrentTasks"];
         if (j.contains("maxConcurrentTasksPerModel")) config.maxConcurrentTasksPerModel = j["maxConcurrentTasksPerModel"];
         if (j.contains("maxTranslationThreads")) config.maxTranslationThreads = j["maxTranslationThreads"];
+        if (j.contains("maxModelsPerTask")) config.maxModelsPerTask = j["maxModelsPerTask"];
         if (j.contains("maxRetries")) config.maxRetries = j["maxRetries"];
         if (j.contains("consecutiveFailureThreshold")) config.consecutiveFailureThreshold = j["consecutiveFailureThreshold"];
         if (j.contains("adminPasswordHash")) config.adminPasswordHash = j["adminPasswordHash"];
@@ -109,6 +110,7 @@ bool ConfigManager::saveSystemConfig(const SystemConfig& config) {
         j["maxConcurrentTasks"] = config.maxConcurrentTasks;
         j["maxConcurrentTasksPerModel"] = config.maxConcurrentTasksPerModel;
         j["maxTranslationThreads"] = config.maxTranslationThreads;
+        j["maxModelsPerTask"] = config.maxModelsPerTask;
         j["maxRetries"] = config.maxRetries;
         j["consecutiveFailureThreshold"] = config.consecutiveFailureThreshold;
         j["adminPasswordHash"] = config.adminPasswordHash;
@@ -171,6 +173,9 @@ std::vector<ModelConfig> ConfigManager::loadModelConfigs() {
             config.temperature = std::round(temp * 100.0f) / 100.0f;
             
             config.systemPrompt = item["systemPrompt"];
+            if (item.contains("provider")) config.provider = item["provider"];
+            if (item.contains("enableThinking")) config.enableThinking = item["enableThinking"];
+            if (item.contains("autoAppendPath")) config.autoAppendPath = item["autoAppendPath"];
             configs.push_back(config);
         }
         
@@ -203,6 +208,9 @@ bool ConfigManager::saveModelConfig(const ModelConfig& config) {
                     double temp = std::round(static_cast<double>(mc.temperature) * 100.0) / 100.0;
                     item["temperature"] = temp;
                     item["systemPrompt"] = mc.systemPrompt;
+                    item["provider"] = mc.provider;
+                    item["enableThinking"] = mc.enableThinking;
+                    item["autoAppendPath"] = mc.autoAppendPath;
                     j.push_back(item);
                 }
                 
@@ -231,6 +239,9 @@ bool ConfigManager::saveModelConfig(const ModelConfig& config) {
             double temp = std::round(static_cast<double>(mc.temperature) * 100.0) / 100.0;
             item["temperature"] = temp;
             item["systemPrompt"] = mc.systemPrompt;
+            item["provider"] = mc.provider;
+            item["enableThinking"] = mc.enableThinking;
+            item["autoAppendPath"] = mc.autoAppendPath;
             j.push_back(item);
         }
         
@@ -276,6 +287,9 @@ bool ConfigManager::deleteModelConfig(const std::string& id) {
             item["modelId"] = mc.modelId;
             item["temperature"] = mc.temperature;
             item["systemPrompt"] = mc.systemPrompt;
+            item["provider"] = mc.provider;
+            item["enableThinking"] = mc.enableThinking;
+            item["autoAppendPath"] = mc.autoAppendPath;
             j.push_back(item);
         }
         

@@ -6,6 +6,11 @@
 #include "config_manager.h"
 #include "html_parser.h"
 
+struct ModelWithThreads {
+    ModelConfig model;
+    int threads = 1;                      // 该模型的翻译线程数
+};
+
 struct TaskConfig {
     std::string taskId;
     std::string taskName;                 // 任务名称（可选，支持中文）
@@ -13,7 +18,8 @@ struct TaskConfig {
     std::vector<std::string> fileNames;  // 多文件支持
     bool translateTitle;
     bool translateAbstract;
-    ModelConfig modelConfig;
+    ModelConfig modelConfig;              // 兼容旧数据：单模型
+    std::vector<ModelWithThreads> modelConfigs;  // 多模型支持
     int totalCount;
     int completedCount;
     int failedCount;
@@ -53,6 +59,9 @@ struct LiteratureData {
     std::string accessionNumber;
     std::string issn;
     std::string eissn;
+    
+    // 翻译模型信息
+    std::string translatedByModel;        // 翻译该文献的模型名称
     
     // 状态
     std::string status;

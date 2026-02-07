@@ -30,21 +30,40 @@ TestConnectionResult Translator::testConnection() {
         
         // 构建请求
         std::string url = config_.url;
-        if (url.back() != '/') url += "/";
-        url += "chat/completions";
         
-        std::string requestBody = R"({
-            "model": ")" + config_.modelId + R"(",
-            "messages": [
-                {"role": "user", "content": "Hi"}
-            ],
-            "max_tokens": 5
-        })";
+        // 根据autoAppendPath决定是否追加路径
+        if (config_.autoAppendPath) {
+            if (url.back() != '/') url += "/";
+            url += "chat/completions";
+        }
+        
+        // 构建请求体
+        nlohmann::json requestJson;
+        requestJson["model"] = config_.modelId;
+        requestJson["messages"] = nlohmann::json::array({
+            {{"role", "user"}, {"content", "Hi"}}
+        });
+        requestJson["max_tokens"] = 5;
+        
+        // 厂商特定参数
+        if (config_.provider == "xiaomi") {
+            requestJson["thinking"] = {{"type", config_.enableThinking ? "enabled" : "disabled"}};
+        } else if (config_.provider == "minimax") {
+            requestJson["reasoning_split"] = true;
+        }
+        
+        std::string requestBody = requestJson.dump();
         
         std::string responseData;
         struct curl_slist* headers = nullptr;
         headers = curl_slist_append(headers, "Content-Type: application/json");
-        headers = curl_slist_append(headers, ("Authorization: Bearer " + config_.apiKey).c_str());
+        
+        // Xiaomi使用api-key头，其他使用Authorization Bearer
+        if (config_.provider == "xiaomi") {
+            headers = curl_slist_append(headers, ("api-key: " + config_.apiKey).c_str());
+        } else {
+            headers = curl_slist_append(headers, ("Authorization: Bearer " + config_.apiKey).c_str());
+        }
         
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -135,8 +154,12 @@ TranslationResult Translator::translateWithRetry(const std::string& text,
             
             // 构建请求 URL
             std::string url = config_.url;
-            if (url.back() != '/') url += "/";
-            url += "chat/completions";
+            
+            // 根据autoAppendPath决定是否追加路径
+            if (config_.autoAppendPath) {
+                if (url.back() != '/') url += "/";
+                url += "chat/completions";
+            }
             
             // 构建提示词
             std::string systemPrompt = config_.systemPrompt.empty() 
@@ -154,12 +177,25 @@ TranslationResult Translator::translateWithRetry(const std::string& text,
             });
             requestJson["temperature"] = config_.temperature;
             
+            // 厂商特定参数
+            if (config_.provider == "xiaomi") {
+                requestJson["thinking"] = {{"type", config_.enableThinking ? "enabled" : "disabled"}};
+            } else if (config_.provider == "minimax") {
+                requestJson["reasoning_split"] = true;
+            }
+            
             std::string requestBody = requestJson.dump();
             
             std::string responseData;
             struct curl_slist* headers = nullptr;
             headers = curl_slist_append(headers, "Content-Type: application/json");
-            headers = curl_slist_append(headers, ("Authorization: Bearer " + config_.apiKey).c_str());
+            
+            // Xiaomi使用api-key头，其他使用Authorization Bearer
+            if (config_.provider == "xiaomi") {
+                headers = curl_slist_append(headers, ("api-key: " + config_.apiKey).c_str());
+            } else {
+                headers = curl_slist_append(headers, ("Authorization: Bearer " + config_.apiKey).c_str());
+            }
             
             curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
             curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -233,6 +269,30 @@ TranslationResult Translator::translateWithRetry(const std::string& text,
                     auto choice = responseJson["choices"][0];
                     if (choice.contains("message") && choice["message"].contains("content")) {
                         result.translatedText = choice["message"]["content"].get<std::string>();
+                        
+                        // MiniMAX: 即使使用reasoning_split，也做兜底清理<think>标签
+                        if (config_.provider == "minimax") {
+                            std::string& text = result.translatedText;
+                            size_t thinkStart = text.find("<think>");
+                            while (thinkStart != std::string::npos) {
+                                size_t thinkEnd = text.find("</think>", thinkStart);
+                                if (thinkEnd != std::string::npos) {
+                                    text.erase(thinkStart, thinkEnd - thinkStart + 8);
+                                } else {
+                                    // 没有闭合标签，删除到末尾
+                                    text.erase(thinkStart);
+                                    break;
+                                }
+                                thinkStart = text.find("<think>");
+                            }
+                            // 去除首尾空白
+                            size_t start = text.find_first_not_of(" \t\n\r");
+                            size_t end = text.find_last_not_of(" \t\n\r");
+                            if (start != std::string::npos && end != std::string::npos) {
+                                text = text.substr(start, end - start + 1);
+                            }
+                        }
+                        
                         result.success = true;
                         
                         Logger::getInstance().info("Translation successful for " + context);

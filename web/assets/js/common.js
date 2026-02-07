@@ -204,11 +204,13 @@ function readFileContent(file) {
     });
 }
 
-// 验证WoS格式
+// 验证WoS格式（支持英文和中文版）
 function validateWosFormat(htmlContent) {
     const hasWosMarker = htmlContent.includes('Clarivate Web of Science') || 
                          htmlContent.includes('Web of Science');
-    const hasRecordMarker = /Record \d+ of \d+/.test(htmlContent);
+    // 英文: "Record 1 of 500"  中文: "第 1 条，共 400 条"
+    const hasRecordMarker = /Record \d+ of \d+/.test(htmlContent) ||
+                            /第\s*\d+\s*条，共\s*\d+\s*条/.test(htmlContent);
     
     if (!hasWosMarker || !hasRecordMarker) {
         return { valid: false, error: '不是有效的Web of Science导出文件' };
@@ -217,16 +219,24 @@ function validateWosFormat(htmlContent) {
     return { valid: true };
 }
 
-// 估算文献数量
+// 估算文献数量（支持英文和中文版）
 function estimateLiteratureCount(htmlContent) {
+    // 英文: "500 record(s) printed from"
     const match = htmlContent.match(/(\d+) record\(s\) printed from/i);
     if (match) {
         return parseInt(match[1]);
     }
     
+    // 英文: "Record 1 of 500"
     const recordMatch = htmlContent.match(/Record \d+ of (\d+)/);
     if (recordMatch) {
         return parseInt(recordMatch[1]);
+    }
+    
+    // 中文: "第 1 条，共 400 条"
+    const zhMatch = htmlContent.match(/第\s*\d+\s*条，共\s*(\d+)\s*条/);
+    if (zhMatch) {
+        return parseInt(zhMatch[1]);
     }
     
     return 0;

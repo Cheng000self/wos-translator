@@ -1,10 +1,18 @@
 let tasks = [];
 let refreshInterval = null;
 let currentLayout = localStorage.getItem('queueLayout') || 'list';
-let currentDateFilter = null;  // 当前日期过滤器
+let currentDateFilter = null;
+let currentSearchQuery = '';
+let calendarYear = 0;
+let calendarMonth = 0;
+let calendarOpen = false;
 
 document.addEventListener('DOMContentLoaded', function() {
-    initDateFilter();
+    var today = new Date();
+    calendarYear = today.getFullYear();
+    calendarMonth = today.getMonth();
+    currentDateFilter = formatDate(today);
+    updateCalendarLabel();
     loadTasks();
     setupEventListeners();
     updateLayoutButtons();
@@ -15,44 +23,124 @@ window.addEventListener('beforeunload', function() {
     if (refreshInterval) clearInterval(refreshInterval);
 });
 
-function initDateFilter() {
-    // 默认显示今天的任务
-    var today = new Date();
-    var dateStr = today.getFullYear() + '-' + 
-                  String(today.getMonth() + 1).padStart(2, '0') + '-' + 
-                  String(today.getDate()).padStart(2, '0');
-    
-    var dateInput = document.getElementById('dateFilter');
-    dateInput.value = dateStr;
-    currentDateFilter = dateStr;
-    
-    // 显示清除按钮
-    document.getElementById('clearDateFilter').classList.remove('hidden');
+function formatDate(d) {
+    return d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+}
+
+function updateCalendarLabel() {
+    var label = document.getElementById('calendarLabel');
+    if (currentDateFilter) {
+        // 显示简短日期 如 "02-07"
+        label.textContent = currentDateFilter.substring(5);
+    } else {
+        label.textContent = '全部日期';
+    }
 }
 
 function setupEventListeners() {
     document.getElementById('refreshTasks').addEventListener('click', loadTasks);
     document.getElementById('listViewBtn').addEventListener('click', function() { setLayout('list'); });
     document.getElementById('gridViewBtn').addEventListener('click', function() { setLayout('grid'); });
-    
-    // 日期过滤器事件
-    document.getElementById('dateFilter').addEventListener('change', function() {
-        currentDateFilter = this.value || null;
-        var clearBtn = document.getElementById('clearDateFilter');
-        if (currentDateFilter) {
-            clearBtn.classList.remove('hidden');
-        } else {
-            clearBtn.classList.add('hidden');
-        }
-        renderTasks();
+
+    // 日历弹窗开关
+    document.getElementById('calendarToggle').addEventListener('click', function(e) {
+        e.stopPropagation();
+        toggleCalendar();
     });
-    
-    document.getElementById('clearDateFilter').addEventListener('click', function() {
-        document.getElementById('dateFilter').value = '';
+
+    // 点击外部关闭日历
+    document.addEventListener('click', function(e) {
+        var dropdown = document.getElementById('calendarDropdown');
+        if (calendarOpen && !dropdown.contains(e.target)) {
+            closeCalendar();
+        }
+    });
+
+    // 日历内部点击不冒泡关闭
+    document.getElementById('calendarDropdown').addEventListener('click', function(e) {
+        e.stopPropagation();
+    });
+
+    // 日历滚轮切换月份
+    document.getElementById('calendarDropdown').addEventListener('wheel', function(e) {
+        e.preventDefault();
+        if (e.deltaY > 0) {
+            calendarMonth++;
+            if (calendarMonth > 11) { calendarMonth = 0; calendarYear++; }
+        } else {
+            calendarMonth--;
+            if (calendarMonth < 0) { calendarMonth = 11; calendarYear--; }
+        }
+        renderCalendar();
+    });
+
+    // 日历导航
+    document.getElementById('prevMonth').addEventListener('click', function() {
+        calendarMonth--;
+        if (calendarMonth < 0) { calendarMonth = 11; calendarYear--; }
+        renderCalendar();
+    });
+    document.getElementById('nextMonth').addEventListener('click', function() {
+        calendarMonth++;
+        if (calendarMonth > 11) { calendarMonth = 0; calendarYear++; }
+        renderCalendar();
+    });
+    document.getElementById('todayBtn').addEventListener('click', function() {
+        var today = new Date();
+        calendarYear = today.getFullYear();
+        calendarMonth = today.getMonth();
+        currentDateFilter = formatDate(today);
+        updateCalendarLabel();
+        renderCalendar();
+        renderTasks();
+        closeCalendar();
+    });
+    document.getElementById('showAllBtn').addEventListener('click', function() {
         currentDateFilter = null;
+        updateCalendarLabel();
+        renderCalendar();
+        renderTasks();
+        closeCalendar();
+    });
+
+    // 搜索 - 在全部任务中搜索
+    var searchInput = document.getElementById('searchInput');
+    var searchTimer = null;
+    searchInput.addEventListener('input', function() {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(function() {
+            currentSearchQuery = searchInput.value.trim().toLowerCase();
+            document.getElementById('clearSearch').classList.toggle('hidden', !currentSearchQuery);
+            renderTasks();
+        }, 200);
+    });
+    document.getElementById('clearSearch').addEventListener('click', function() {
+        searchInput.value = '';
+        currentSearchQuery = '';
         this.classList.add('hidden');
         renderTasks();
     });
+}
+
+function toggleCalendar() {
+    if (calendarOpen) {
+        closeCalendar();
+    } else {
+        openCalendar();
+    }
+}
+
+function openCalendar() {
+    calendarOpen = true;
+    document.getElementById('calendarDropdown').classList.remove('hidden');
+    renderCalendar();
+}
+
+function closeCalendar() {
+    calendarOpen = false;
+    document.getElementById('calendarDropdown').classList.add('hidden');
 }
 
 function setLayout(layout) {
@@ -78,10 +166,91 @@ function updateLayoutButtons() {
     }
 }
 
+// ========== 日历 ==========
+
+function getTaskCountsByDate() {
+    var counts = {};
+    for (var i = 0; i < tasks.length; i++) {
+        var date = tasks[i].taskId.substring(0, 10);
+        counts[date] = (counts[date] || 0) + 1;
+    }
+    return counts;
+}
+
+function renderCalendar() {
+    var title = calendarYear + '年' + (calendarMonth + 1) + '月';
+    document.getElementById('calendarTitle').textContent = title;
+
+    var counts = getTaskCountsByDate();
+    var today = formatDate(new Date());
+
+    var firstDay = new Date(calendarYear, calendarMonth, 1);
+    var lastDay = new Date(calendarYear, calendarMonth + 1, 0);
+    var startDow = firstDay.getDay();
+    var daysInMonth = lastDay.getDate();
+
+    var grid = document.getElementById('calendarGrid');
+    var html = '';
+
+    for (var i = 0; i < startDow; i++) {
+        html += '<div class="py-1"></div>';
+    }
+
+    for (var d = 1; d <= daysInMonth; d++) {
+        var dateStr = calendarYear + '-' + String(calendarMonth + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+        var count = counts[dateStr] || 0;
+        var isToday = dateStr === today;
+        var isSelected = dateStr === currentDateFilter;
+
+        var cellClass = 'relative py-1 rounded-lg cursor-pointer transition-all text-xs ';
+        if (isSelected) {
+            cellClass += 'bg-blue-600 text-white font-semibold';
+        } else if (isToday) {
+            cellClass += 'bg-blue-50 text-blue-600 font-semibold hover:bg-blue-100';
+        } else if (count > 0) {
+            cellClass += 'text-slate-900 hover:bg-slate-100 font-medium';
+        } else {
+            cellClass += 'text-slate-400 hover:bg-slate-50';
+        }
+
+        html += '<div class="' + cellClass + '" onclick="selectDate(\'' + dateStr + '\')">';
+        html += '<div>' + d + '</div>';
+        if (count > 0) {
+            html += '<div class="flex justify-center mt-0.5"><span class="inline-block text-center leading-none rounded-full px-1 ' +
+                (isSelected ? 'text-blue-200 text-[9px]' : 'text-blue-600 text-[9px]') + '">' + count + '</span></div>';
+        }
+        html += '</div>';
+    }
+
+    grid.innerHTML = html;
+}
+
+function selectDate(dateStr) {
+    if (currentDateFilter === dateStr) {
+        currentDateFilter = null;
+    } else {
+        currentDateFilter = dateStr;
+    }
+    updateCalendarLabel();
+    renderCalendar();
+    renderTasks();
+    closeCalendar();
+}
+
+function clearDateFilterAndShow() {
+    currentDateFilter = null;
+    updateCalendarLabel();
+    renderCalendar();
+    renderTasks();
+}
+
+// ========== 任务加载和渲染 ==========
+
 async function loadTasks() {
     try {
         var response = await apiCall('GET', '/api/tasks');
         tasks = response;
+        if (calendarOpen) renderCalendar();
         renderTasks();
     } catch (error) {
         document.getElementById('taskList').innerHTML = '<div class="text-center py-12 text-red-500">加载失败: ' + error.message + '</div>';
@@ -90,19 +259,44 @@ async function loadTasks() {
 
 function renderTasks() {
     var taskList = document.getElementById('taskList');
-    
-    // 根据日期过滤任务
+    var filterInfo = document.getElementById('filterInfo');
+
     var filteredTasks = tasks;
-    if (currentDateFilter) {
-        filteredTasks = tasks.filter(function(task) {
-            // taskId 格式为 "YYYY-MM-DD/XXXX"
+    var filters = [];
+
+    // 搜索在全部任务中进行（不受日期限制）
+    if (currentSearchQuery) {
+        filteredTasks = filteredTasks.filter(function(task) {
+            var name = (task.taskName || '').toLowerCase();
+            var file = (task.fileName || '').toLowerCase();
+            var id = (task.taskId || '').toLowerCase();
+            var model = (task.modelName || '').toLowerCase();
+            return name.indexOf(currentSearchQuery) !== -1 ||
+                   file.indexOf(currentSearchQuery) !== -1 ||
+                   id.indexOf(currentSearchQuery) !== -1 ||
+                   model.indexOf(currentSearchQuery) !== -1;
+        });
+        filters.push('搜索: "' + currentSearchQuery + '"');
+    } else if (currentDateFilter) {
+        // 只在没有搜索时才按日期过滤
+        filteredTasks = filteredTasks.filter(function(task) {
             return task.taskId.startsWith(currentDateFilter);
         });
+        filters.push(currentDateFilter);
     }
-    
+
+    // 显示过滤信息
+    if (filters.length > 0 || filteredTasks.length !== tasks.length) {
+        filterInfo.textContent = (filters.length > 0 ? filters.join(' · ') + ' · ' : '') + '共 ' + filteredTasks.length + ' 个任务';
+        filterInfo.classList.remove('hidden');
+    } else {
+        filterInfo.textContent = '共 ' + filteredTasks.length + ' 个任务';
+        filterInfo.classList.remove('hidden');
+    }
+
     if (filteredTasks.length === 0) {
-        var message = currentDateFilter 
-            ? '该日期没有任务，<button onclick="clearDateFilterAndShow()" class="text-blue-600 hover:underline cursor-pointer">显示全部</button> 或 <a href="/translate.html" class="text-blue-600 hover:underline cursor-pointer">创建新任务</a>'
+        var message = (currentDateFilter || currentSearchQuery)
+            ? '没有匹配的任务，<button onclick="clearAllFilters()" class="text-blue-600 hover:underline cursor-pointer">清除筛选</button> 或 <a href="/translate.html" class="text-blue-600 hover:underline cursor-pointer">创建新任务</a>'
             : '暂无任务，<a href="/translate.html" class="text-blue-600 hover:underline cursor-pointer">创建新任务</a>';
         taskList.innerHTML = '<div class="text-center py-12 text-slate-500">' + message + '</div>';
         return;
@@ -116,10 +310,13 @@ function renderTasks() {
     }
 }
 
-function clearDateFilterAndShow() {
-    document.getElementById('dateFilter').value = '';
+function clearAllFilters() {
     currentDateFilter = null;
-    document.getElementById('clearDateFilter').classList.add('hidden');
+    currentSearchQuery = '';
+    document.getElementById('searchInput').value = '';
+    document.getElementById('clearSearch').classList.add('hidden');
+    updateCalendarLabel();
+    if (calendarOpen) renderCalendar();
     renderTasks();
 }
 
@@ -157,18 +354,19 @@ function renderGridCard(task) {
     html += '<div class="mb-3"><div class="flex items-center justify-between text-xs text-slate-500 mb-1"><span>' + task.completedCount + '/' + task.totalCount + '</span><span>' + progress + '%</span></div>';
     html += '<div class="w-full bg-gray-200 rounded-full h-1.5"><div class="bg-blue-600 h-1.5 rounded-full" style="width:' + progress + '%"></div></div></div>';
     html += '<div class="flex items-center justify-between pt-2 border-t border-gray-100">';
-    // 左侧显示模型名称
-    if (task.modelName) {
+    if (task.modelCount > 1) {
+        html += '<span class="text-xs text-slate-500 truncate max-w-[100px]" title="' + task.modelCount + '个模型">';
+        html += '<svg class="w-3 h-3 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>';
+        html += task.modelCount + '个模型</span>';
+    } else if (task.modelName) {
         html += '<span class="text-xs text-slate-500 truncate max-w-[100px]" title="' + task.modelName + '">';
         html += '<svg class="w-3 h-3 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>';
         html += task.modelName + '</span>';
     } else {
         html += '<span></span>';
     }
-    // 右侧操作按钮
     html += '<div class="flex items-center space-x-1" onclick="event.stopPropagation()">' + renderActionButtons(task) + '</div>';
-    html += '</div>';
-    html += '</div>';
+    html += '</div></div>';
     return html;
 }
 

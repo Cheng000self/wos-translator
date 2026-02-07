@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <future>
 #include <atomic>
+#include <queue>
 
 TaskQueue& TaskQueue::getInstance() {
     static TaskQueue instance;
@@ -175,13 +176,21 @@ TaskInfo TaskQueue::getTaskInfo(const std::string& taskId) {
         info.deleted = config.deleted;
         
         // 获取模型名称
-        if (!config.modelConfig.modelId.empty()) {
-            // 尝试从已保存的模型配置中获取名称
+        if (!config.modelConfigs.empty()) {
+            // 多模型任务
+            info.modelCount = config.modelConfigs.size();
+            if (config.modelConfigs.size() == 1) {
+                info.modelName = config.modelConfigs[0].model.name;
+            } else {
+                info.modelName = std::to_string(config.modelConfigs.size()) + "个模型";
+            }
+        } else if (!config.modelConfig.modelId.empty()) {
+            // 兼容旧的单模型任务
+            info.modelCount = 1;
             ModelConfig savedModel = ConfigManager::getInstance().getModelConfig(config.modelConfig.modelId);
             if (!savedModel.name.empty()) {
                 info.modelName = savedModel.name;
             } else {
-                // 使用modelId作为名称
                 info.modelName = config.modelConfig.modelId;
             }
         }
@@ -410,14 +419,21 @@ void TaskQueue::executeTask(const std::string& taskId, const std::string& modelI
     try {
         Logger::getInstance().info("Executing task in thread: " + taskId);
         
-        // 获取翻译线程数
-        int numThreads = ConfigManager::getInstance().loadSystemConfig().maxTranslationThreads;
+        // 加载任务配置
+        TaskConfig config = StorageManager::getInstance().loadTaskConfig(taskId);
         
-        // 处理任务
-        if (numThreads > 1) {
-            translateTaskMultiThread(taskId, numThreads);
+        // 判断是否为多模型任务
+        if (!config.modelConfigs.empty()) {
+            // 多模型：使用连续调度
+            translateTaskContinuous(taskId);
         } else {
-            translateTask(taskId);
+            // 单模型：使用原有逻辑
+            int numThreads = ConfigManager::getInstance().loadSystemConfig().maxTranslationThreads;
+            if (numThreads > 1) {
+                translateTaskMultiThread(taskId, numThreads);
+            } else {
+                translateTask(taskId);
+            }
         }
         
     } catch (const std::exception& e) {
@@ -1076,6 +1092,201 @@ void TaskQueue::translateTaskMultiThread(const std::string& taskId, int numThrea
         
     } catch (const std::exception& e) {
         Logger::getInstance().error("Failed to translate task (multi-thread): " + std::string(e.what()));
+        
+        TaskConfig config = StorageManager::getInstance().loadTaskConfig(taskId);
+        config.status = "failed";
+        StorageManager::getInstance().saveTaskConfig(config);
+    }
+}
+
+// 连续调度翻译 - 多模型工作窃取式调度
+void TaskQueue::translateTaskContinuous(const std::string& taskId) {
+    try {
+        Logger::getInstance().info("Translating task with continuous scheduling: " + taskId);
+        
+        // 加载任务配置
+        TaskConfig config = StorageManager::getInstance().loadTaskConfig(taskId);
+        config.status = "running";
+        StorageManager::getInstance().saveTaskConfig(config);
+        
+        // 加载文献索引
+        std::vector<int> indices = StorageManager::getInstance().loadIndexJson(taskId);
+        
+        // 过滤出待翻译的文献
+        std::vector<int> pendingIndices;
+        for (int index : indices) {
+            LiteratureData data = StorageManager::getInstance().loadLiteratureData(taskId, index);
+            if (data.status != "completed") {
+                pendingIndices.push_back(index);
+            }
+        }
+        
+        if (pendingIndices.empty()) {
+            config.status = "completed";
+            StorageManager::getInstance().saveTaskConfig(config);
+            rebuildTranslatedHtml(taskId);
+            return;
+        }
+        
+        // 共享状态
+        std::atomic<int> completedCount(config.completedCount);
+        std::atomic<int> failedCount(config.failedCount);
+        std::atomic<int> consecutiveFailures(0);
+        std::atomic<bool> shouldStop(false);
+        std::mutex progressMutex;
+        
+        // 共享任务队列
+        std::queue<int> taskQueue;
+        std::mutex queueMutex;
+        for (int idx : pendingIndices) {
+            taskQueue.push(idx);
+        }
+        
+        int maxConsecutiveFailures = ConfigManager::getInstance().loadSystemConfig().consecutiveFailureThreshold;
+        
+        // 创建工作函数 - 每个worker从共享队列中取任务
+        auto continuousWorker = [&](const ModelConfig& workerModel) {
+            Translator translator(workerModel);
+            std::string modelName = workerModel.name.empty() ? workerModel.modelId : workerModel.name;
+            
+            while (!shouldStop.load()) {
+                // 从队列中取一个任务
+                int index = -1;
+                {
+                    std::lock_guard<std::mutex> lock(queueMutex);
+                    if (taskQueue.empty()) {
+                        return;  // 队列空了，退出
+                    }
+                    index = taskQueue.front();
+                    taskQueue.pop();
+                }
+                
+                // 检查是否被暂停
+                TaskConfig currentConfig = StorageManager::getInstance().loadTaskConfig(taskId);
+                if (currentConfig.status == "paused") {
+                    // 把任务放回队列
+                    std::lock_guard<std::mutex> lock(queueMutex);
+                    taskQueue.push(index);
+                    shouldStop.store(true);
+                    return;
+                }
+                
+                LiteratureData data = StorageManager::getInstance().loadLiteratureData(taskId, index);
+                
+                if (data.status == "completed") {
+                    continue;
+                }
+                
+                data.status = "translating";
+                data.translatedByModel = modelName;
+                StorageManager::getInstance().saveLiteratureData(taskId, index, data);
+                
+                bool success = true;
+                
+                // 翻译标题
+                if (config.translateTitle && !data.originalTitle.empty()) {
+                    TranslationResult result = translator.translate(data.originalTitle, "标题");
+                    if (result.success) {
+                        data.translatedTitle = result.translatedText;
+                    } else {
+                        success = false;
+                        data.errorMessage = "Title translation failed: " + result.errorMessage;
+                    }
+                }
+                
+                // 翻译摘要
+                if (success && config.translateAbstract && !data.originalAbstract.empty()) {
+                    TranslationResult result = translator.translate(data.originalAbstract, "摘要");
+                    if (result.success) {
+                        data.translatedAbstract = result.translatedText;
+                    } else {
+                        success = false;
+                        data.errorMessage = "Abstract translation failed: " + result.errorMessage;
+                    }
+                }
+                
+                if (success) {
+                    data.status = "completed";
+                    data.errorMessage = "";
+                    completedCount.fetch_add(1);
+                    consecutiveFailures.store(0);
+                } else {
+                    data.status = "failed";
+                    failedCount.fetch_add(1);
+                    int failures = consecutiveFailures.fetch_add(1) + 1;
+                    if (failures >= maxConsecutiveFailures) {
+                        shouldStop.store(true);
+                    }
+                }
+                
+                StorageManager::getInstance().saveLiteratureData(taskId, index, data);
+                
+                // 更新任务进度
+                {
+                    std::lock_guard<std::mutex> lock(progressMutex);
+                    TaskConfig latestConfig = StorageManager::getInstance().loadTaskConfig(taskId);
+                    if (latestConfig.status == "paused") {
+                        shouldStop.store(true);
+                    } else {
+                        latestConfig.completedCount = completedCount.load();
+                        latestConfig.failedCount = failedCount.load();
+                        
+                        auto now = std::chrono::system_clock::now();
+                        auto time = std::chrono::system_clock::to_time_t(now);
+                        std::tm tm = *std::gmtime(&time);
+                        std::ostringstream oss;
+                        oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+                        latestConfig.updatedAt = oss.str();
+                        
+                        StorageManager::getInstance().saveTaskConfig(latestConfig);
+                    }
+                }
+            }
+        };
+        
+        // 为每个模型的每个线程创建worker
+        std::vector<std::future<void>> futures;
+        for (const auto& mwt : config.modelConfigs) {
+            for (int t = 0; t < mwt.threads; t++) {
+                futures.push_back(std::async(std::launch::async, continuousWorker, mwt.model));
+            }
+        }
+        
+        Logger::getInstance().info("Started " + std::to_string(futures.size()) + " continuous workers for task: " + taskId);
+        
+        // 等待所有worker完成
+        for (auto& future : futures) {
+            future.wait();
+        }
+        
+        // 更新最终状态
+        config = StorageManager::getInstance().loadTaskConfig(taskId);
+        config.completedCount = completedCount.load();
+        config.failedCount = failedCount.load();
+        
+        if (config.status != "paused") {
+            if (shouldStop.load() && consecutiveFailures.load() >= maxConsecutiveFailures) {
+                config.status = "paused";
+                Logger::getInstance().error("Too many consecutive failures, pausing task: " + taskId);
+            } else if (config.completedCount + config.failedCount >= config.totalCount) {
+                config.status = "completed";
+                rebuildTranslatedHtml(taskId);
+            }
+        }
+        
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        std::tm tm = *std::gmtime(&time);
+        std::ostringstream oss;
+        oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+        config.updatedAt = oss.str();
+        
+        StorageManager::getInstance().saveTaskConfig(config);
+        
+        Logger::getInstance().info("Continuous translation completed: " + taskId);
+        
+    } catch (const std::exception& e) {
+        Logger::getInstance().error("Failed to translate task (continuous): " + std::string(e.what()));
         
         TaskConfig config = StorageManager::getInstance().loadTaskConfig(taskId);
         config.status = "failed";
